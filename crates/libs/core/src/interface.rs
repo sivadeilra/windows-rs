@@ -334,3 +334,16 @@ impl<'a, I: Interface> core::ops::Deref for InterfaceRef<'a, I> {
 /// See the comments on [`Interface::cast_to_any`].
 #[doc(hidden)]
 pub const DYNAMIC_CAST_IID: GUID = GUID::from_u128(0xae49d5cb_143f_431c_874c_2729336e4eca);
+
+/// COM interfaces that subclass other interfaces implement [`InheritedInterface`].
+pub trait InheritedInterface: Interface {
+    /// The COM interface that `Self` derives from.
+    type Base: Interface;
+
+    /// Converts this COM interface reference into a reference to the base inheritance (parent).
+    ///
+    /// This consumes the reference owned by `Self`. It does not call `AddRef` or `Release`.
+    /// The implementations generally have no runtime cost at all, because they are usually
+    /// a transmute of `self`.
+    fn into_base(self) -> Self::Base;
+}

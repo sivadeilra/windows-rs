@@ -337,17 +337,8 @@ impl Interface {
     fn gen_conversions(&self) -> proc_macro2::TokenStream {
         let name = &self.name;
         let name_string = format!("{name}");
-        quote! {
-            impl ::core::convert::From<#name> for ::windows_core::IUnknown {
-                fn from(value: #name) -> Self {
-                    unsafe { ::core::mem::transmute(value) }
-                }
-            }
-            impl ::core::convert::From<&#name> for ::windows_core::IUnknown {
-                fn from(value: &#name) -> Self {
-                    ::core::convert::From::from(::core::clone::Clone::clone(value))
-                }
-            }
+
+        let mut conversions = quote! {
             impl ::core::clone::Clone for #name {
                 fn clone(&self) -> Self {
                     Self(self.0.clone())
@@ -364,7 +355,37 @@ impl Interface {
                     f.debug_tuple(#name_string).field(&self.0).finish()
                 }
             }
+        };
+
+        if let Some(parent) = self.parent.as_ref() {
+            conversions.extend(quote! {
+                impl ::windows_core::InheritedInterface for #name {
+                    type Base = #parent;
+
+                    fn into_base(self) -> #parent {
+                        self.0
+                    }
+                }
+            });
+
+            {
+                conversions.extend(quote! {
+                    impl ::core::convert::From<#name> for #parent {
+                        fn from(value: #name) -> Self {
+                            unsafe { ::core::mem::transmute(value) }
+                        }
+                    }
+
+                    impl ::core::convert::From<&#name> for #parent {
+                        fn from(value: &#name) -> Self {
+                            unsafe { ::core::mem::transmute(value) }
+                        }
+                    }
+                });
+            }
         }
+
+        conversions
     }
 
     fn parent_type(&self) -> proc_macro2::TokenStream {

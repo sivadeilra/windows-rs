@@ -48,3 +48,19 @@ fn redundant_interface_chains() {
     let _foo2: IFoo2 = unknown.cast().expect("QueryInterface for IFoo2");
     let _foo3: IFoo3 = unknown.cast().expect("QueryInterface for IFoo3");
 }
+
+#[test]
+fn old_into_base() {
+    let object = ComObject::new(ObjectWithChains {});
+    let foo3: IFoo3 = object.to_interface();
+    let foo2: IFoo2 = IFoo2::from(foo3);
+    let _foo: IFoo = IFoo::from(foo2);
+}
+
+#[test]
+fn into_base() {
+    let object = ComObject::new(ObjectWithChains {});
+    let foo3: IFoo3 = object.to_interface();
+    let foo2: IFoo2 = foo3.into_base();
+    let _foo: IFoo = foo2.into_base();
+}
