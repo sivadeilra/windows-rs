@@ -1,5 +1,7 @@
 use super::*;
 
+const E_OVERFLOW: crate::HRESULT = crate::HRESULT::from_win32(534);
+
 /// A WinRT string ([HSTRING](https://docs.microsoft.com/en-us/windows/win32/winrt/hstring))
 /// is reference-counted and immutable.
 #[repr(transparent)]
@@ -426,7 +428,10 @@ impl Header {
         debug_assert!(len != 0);
         // Allocate enough space for header and two bytes per character.
         // The space for the terminating null character is already accounted for inside of `Header`.
-        let alloc_size = core::mem::size_of::<Header>() + 2 * len as usize;
+        let alloc_size = (len as usize)
+            .checked_mul(2)
+            .and_then(|len_bytes| core::mem::size_of::<Header>().checked_add(len_bytes))
+            .ok_or_else(|| Error::from(E_OVERFLOW))?;
 
         let header = imp::heap_alloc(alloc_size)? as *mut Header;
 
@@ -451,6 +456,7 @@ impl Header {
             // SAFETY: since we are duplicating the string it is safe to copy all data from self to the initialized `copy`.
             // We copy `len + 1` characters since `len` does not account for the terminating null character.
             unsafe {
+                // SAFETY: The +1 cannot fail because this is the true size of the buffer that was already allocated.
                 core::ptr::copy_nonoverlapping(self.data, (*copy).data, self.len as usize + 1);
             }
             Ok(copy)

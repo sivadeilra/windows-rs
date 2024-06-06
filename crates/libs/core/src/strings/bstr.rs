@@ -37,7 +37,10 @@ impl BSTR {
         if !self.is_empty() {
             self.0
         } else {
-            const EMPTY: [u16; 1] = [0];
+            // This needs to be static, not const, to guarantee that the expression does not use
+            // a temporary. If a temporary is used, then this function would return a pointer to
+            // its local stack frame, which would be invalid to the caller.
+            static EMPTY: [u16; 1] = [0];
             EMPTY.as_ptr()
         }
     }
