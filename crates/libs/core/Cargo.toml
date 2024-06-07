@@ -25,6 +25,21 @@ path = "../targets"
 version = "0.1.1"
 path = "../result"
 
+[dependencies.uuid]
+version = "1.8.0"
+optional = true
+default-features = false
+
+[dependencies.zerocopy]
+version = "0.7.34"
+optional = true
+default-features = false
+
+[dependencies.zerocopy-derive]
+version = "0.7.34"
+optional = true
+default-features = false
+
 [dependencies]
 windows-implement = { path = "../implement",  version = "0.57.0" }
 windows-interface = { path = "../interface",  version = "0.57.0" }
@@ -36,3 +51,4 @@ path = "../bindgen"
 [features]
 default = ["std"]
 std = []
+zerocopy = ["dep:zerocopy", "dep:zerocopy-derive"]
