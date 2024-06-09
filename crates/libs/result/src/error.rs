@@ -2,10 +2,38 @@ use super::*;
 use core::ffi::c_void;
 
 /// An error object consists of both an error code as well as detailed error information for debugging.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Eq)]
 pub struct Error {
     code: HRESULT,
     info: Option<ComPtr>,
+}
+
+impl core::hash::Hash for Error {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        // We ignore the 'info' field for hashing.
+        self.code.hash(state)
+    }
+}
+
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        // We ignore the 'info' field for comparison.
+        self.code == other.code
+    }
+}
+
+impl PartialOrd for Error {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        // We ignore the 'info' field for comparison.
+        Some(self.code.cmp(&other.code))
+    }
+}
+
+impl Ord for Error {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        // We ignore the 'info' field for comparison.
+        self.code.cmp(&other.code)
+    }
 }
 
 impl Error {
@@ -154,6 +182,15 @@ impl From<alloc::string::FromUtf16Error> for Error {
 
 impl From<alloc::string::FromUtf8Error> for Error {
     fn from(_: alloc::string::FromUtf8Error) -> Self {
+        Self {
+            code: HRESULT::from_win32(ERROR_NO_UNICODE_TRANSLATION),
+            info: None,
+        }
+    }
+}
+
+impl From<core::str::Utf8Error> for Error {
+    fn from(_: core::str::Utf8Error) -> Self {
         Self {
             code: HRESULT::from_win32(ERROR_NO_UNICODE_TRANSLATION),
             info: None,

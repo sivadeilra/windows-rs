@@ -2,7 +2,7 @@ use super::*;
 
 /// An error code value returned by most COM functions.
 #[repr(transparent)]
-#[derive(Copy, Clone, Default, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[must_use]
 #[allow(non_camel_case_types)]
 pub struct HRESULT(pub i32);
