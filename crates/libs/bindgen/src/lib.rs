@@ -117,9 +117,9 @@ where
     let reader = metadata::Reader::filter(input, &include, &exclude, &config);
 
     match extension(&output) {
-        "rdl" => rdl::from_reader(reader, config, &output)?,
-        "winmd" => winmd::from_reader(reader, config, &output)?,
-        "rs" => rust::from_reader(reader, config, &output)?,
+        "rdl" => rdl::from_reader(&reader, config, &output)?,
+        "winmd" => winmd::from_reader(&reader, config, &output)?,
+        "rs" => rust::from_reader(&reader, config, &output)?,
         _ => return Err(Error::new("output extension must be one of winmd/rdl/rs")),
     }
 

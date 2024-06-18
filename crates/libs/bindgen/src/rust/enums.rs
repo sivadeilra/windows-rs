@@ -1,7 +1,7 @@
 use super::*;
 use metadata::HasAttributes;
 
-pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     let type_name = def.type_name();
     let ident = to_ident(type_name.name());
     let underlying_type = def.underlying_type();

@@ -30,7 +30,7 @@ pub fn libraries() -> BTreeMap<String, BTreeMap<String, CallingConvention>> {
 
     let files = default_metadata();
     let reader = metadata::Reader::new(files);
-    combine_libraries(reader, &mut libraries);
+    combine_libraries(&reader, &mut libraries);
     libraries
 }
 

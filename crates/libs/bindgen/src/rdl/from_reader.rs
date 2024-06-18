@@ -2,7 +2,7 @@ use super::*;
 use tokens::{quote, to_ident, TokenStream};
 
 pub fn from_reader(
-    reader: &'static metadata::Reader,
+    reader: &metadata::Reader,
     mut config: std::collections::BTreeMap<&str, &str>,
     output: &str,
 ) -> Result<()> {
@@ -34,7 +34,7 @@ pub fn from_reader(
     }
 }
 
-fn gen_split(writer: &Writer) -> Result<()> {
+fn gen_split(writer: &Writer<'_>) -> Result<()> {
     let tree = Tree::new(writer.reader);
     let directory = directory(&writer.output);
 
@@ -51,7 +51,7 @@ fn gen_split(writer: &Writer) -> Result<()> {
     Ok(())
 }
 
-fn gen_file(writer: &Writer) -> Result<()> {
+fn gen_file(writer: &Writer<'_>) -> Result<()> {
     let tree = Tree::new(writer.reader);
     let tokens = writer.tree(&tree);
     writer.write_to_file(&writer.output, tokens)
@@ -63,16 +63,16 @@ enum Dialect {
     WinRT,
 }
 
-struct Writer {
-    reader: &'static metadata::Reader,
-    namespace: &'static str,
+struct Writer<'a> {
+    reader: &'a metadata::Reader,
+    namespace: &'a str,
     dialect: Dialect,
     split: bool,
     output: String,
 }
 
-impl Writer {
-    fn new(reader: &'static metadata::Reader, output: &str, dialect: Dialect) -> Self {
+impl<'a> Writer<'a> {
+    fn new(reader: &'a metadata::Reader, output: &str, dialect: Dialect) -> Self {
         Self {
             reader,
             namespace: "",
@@ -82,7 +82,7 @@ impl Writer {
         }
     }
 
-    fn with_namespace(&self, namespace: &'static str) -> Self {
+    fn with_namespace(&self, namespace: &'a str) -> Self {
         Self {
             reader: self.reader,
             namespace,
@@ -108,7 +108,7 @@ impl Writer {
         //write_to_file(output, tokens.into_string())
     }
 
-    fn tree(&self, tree: &Tree) -> TokenStream {
+    fn tree(&self, tree: &Tree<'_>) -> TokenStream {
         let items = self.items(tree);
 
         if self.split {
@@ -153,7 +153,7 @@ impl Writer {
         }
     }
 
-    fn items(&self, tree: &Tree) -> TokenStream {
+    fn items(&self, tree: &Tree<'_>) -> TokenStream {
         let mut functions = vec![];
         let mut constants = vec![];
         let mut types = vec![];

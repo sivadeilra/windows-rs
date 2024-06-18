@@ -2,10 +2,10 @@ use super::*;
 use metadata::HasAttributes;
 
 #[derive(Clone)]
-pub struct Writer {
-    pub reader: &'static metadata::Reader,
+pub struct Writer<'r> {
+    pub reader: &'r metadata::Reader,
     pub output: String,
-    pub namespace: &'static str,
+    pub namespace: String,
     pub implement: bool, // TODO: ideally we can use this to generate implementation traits on the fly and
     // and have a single interface definition macro for consumption that expands to include
     // impl traits when the `implement` cfg flag is set and then this writer option would be
@@ -26,12 +26,12 @@ pub struct Writer {
     pub rustfmt_config: String,
 }
 
-impl Writer {
-    pub fn new(reader: &'static metadata::Reader, output: &str) -> Self {
+impl<'r> Writer<'r> {
+    pub fn new(reader: &'r metadata::Reader, output: &str) -> Self {
         Self {
             reader,
             output: output.to_string(),
-            namespace: "",
+            namespace: String::new(),
             implement: false,
             std: false,
             sys: false,
@@ -425,7 +425,7 @@ impl Writer {
     // Cfg
     //
 
-    pub(crate) fn cfg_features(&self, cfg: &cfg::Cfg) -> TokenStream {
+    pub(crate) fn cfg_features(&self, cfg: &cfg::Cfg<'_>) -> TokenStream {
         let arches = &cfg.arches;
         let arch = match arches.len() {
             0 => quote! {},
@@ -437,7 +437,7 @@ impl Writer {
             }
         };
 
-        let features = self.cfg_features_imp(cfg, self.namespace);
+        let features = self.cfg_features_imp(cfg, &self.namespace);
 
         let features = match features.len() {
             0 => quote! {},
@@ -454,16 +454,16 @@ impl Writer {
         quote! { #arch #features }
     }
 
-    fn cfg_features_imp(&self, cfg: &cfg::Cfg, namespace: &str) -> Vec<&'static str> {
-        let mut compact = Vec::<&'static str>::new();
+    fn cfg_features_imp<'a>(&self, cfg: &cfg::Cfg<'a>, namespace: &str) -> Vec<&'a str> {
+        let mut compact = Vec::<&'a str>::new();
         if self.package {
-            for feature in cfg.types.keys() {
+            for &feature in cfg.types.keys() {
                 if !feature.is_empty()
                     && !starts_with(namespace, feature)
                     && !is_defaulted_foundation_feature(namespace, feature)
                 {
                     for pos in 0..compact.len() {
-                        if starts_with(feature, unsafe { compact.get_unchecked(pos) }) {
+                        if starts_with(feature, compact[pos]) {
                             compact.remove(pos);
                             break;
                         }
@@ -479,8 +479,8 @@ impl Writer {
         compact
     }
 
-    fn cfg_not_features(&self, cfg: &cfg::Cfg) -> TokenStream {
-        let features = self.cfg_features_imp(cfg, self.namespace);
+    fn cfg_not_features(&self, cfg: &cfg::Cfg<'_>) -> TokenStream {
+        let features = self.cfg_features_imp(cfg, &self.namespace);
         if features.is_empty() {
             quote! {}
         } else {
@@ -1414,7 +1414,7 @@ fn const_ptrs(pointers: usize) -> TokenStream {
     "*const ".repeat(pointers).into()
 }
 
-pub fn cfg_features(cfg: &cfg::Cfg) -> Vec<String> {
+pub fn cfg_features(cfg: &cfg::Cfg<'_>) -> Vec<String> {
     let mut compact = Vec::<&'static str>::new();
 
     for feature in cfg.types.keys() {

@@ -1,13 +1,13 @@
 use super::*;
 
 pub fn writer(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     generics: &[metadata::Type],
     ident: &TokenStream,
     constraints: &TokenStream,
     _phantoms: &TokenStream,
-    cfg: &cfg::Cfg,
+    cfg: &cfg::Cfg<'_>,
 ) -> TokenStream {
     match def.type_name() {
         // If the type is IIterator<T> then simply implement the Iterator trait over top.

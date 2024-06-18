@@ -1,7 +1,7 @@
 use super::*;
 use metadata::HasAttributes;
 
-pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if def.kind() != metadata::TypeKind::Interface
         || (!writer.implement && def.has_attribute("ExclusiveToAttribute"))
     {
@@ -32,7 +32,7 @@ pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     );
 
     fn gen_required_trait(
-        writer: &Writer,
+        writer: &Writer<'_>,
         def: metadata::TypeDef,
         generics: &[metadata::Type],
     ) -> TokenStream {

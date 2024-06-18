@@ -1,7 +1,7 @@
 use super::*;
 
 pub fn writer(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     kind: metadata::InterfaceKind,
     method: metadata::MethodDef,
@@ -166,7 +166,7 @@ pub fn writer(
     }
 }
 
-pub fn gen_upcall(writer: &Writer, sig: &metadata::Signature, inner: TokenStream) -> TokenStream {
+pub fn gen_upcall(writer: &Writer<'_>, sig: &metadata::Signature, inner: TokenStream) -> TokenStream {
     match sig.kind() {
         metadata::SignatureKind::ResultValue => {
             let invoke_args = sig.params[..sig.params.len() - 1]
@@ -221,7 +221,7 @@ pub fn gen_upcall(writer: &Writer, sig: &metadata::Signature, inner: TokenStream
     }
 }
 
-fn gen_win32_invoke_arg(writer: &Writer, param: &metadata::SignatureParam) -> TokenStream {
+fn gen_win32_invoke_arg(writer: &Writer<'_>, param: &metadata::SignatureParam) -> TokenStream {
     let name = writer.param_name(param.def);
 
     if param.def.flags().contains(metadata::ParamAttributes::In)

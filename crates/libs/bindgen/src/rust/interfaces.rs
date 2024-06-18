@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if writer.sys {
         gen_sys_interface(writer, def)
     } else {
@@ -8,7 +8,7 @@ pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     }
 }
 
-fn gen_sys_interface(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+fn gen_sys_interface(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if !writer.vtbl {
         return quote! {};
     }
@@ -34,7 +34,7 @@ fn gen_sys_interface(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     tokens
 }
 
-fn gen_win_interface(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+fn gen_win_interface(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     let generics = &metadata::type_def_generics(def);
     let ident = writer.type_def_name(def, generics);
     let vtbl_ident = writer.type_def_vtbl_name(def, generics);

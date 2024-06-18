@@ -1,7 +1,7 @@
 use super::*;
 use metadata::HasAttributes;
 
-pub fn writer(writer: &Writer, def: metadata::Field) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::Field) -> TokenStream {
     let name = to_ident(def.name());
     let ty = def.ty(None).to_const_type();
     let cfg = cfg::field_cfg(writer, def);
@@ -86,7 +86,7 @@ fn is_signed_error(ty: &metadata::Type) -> bool {
     }
 }
 
-fn initializer(writer: &Writer, def: metadata::Field) -> Option<TokenStream> {
+fn initializer(writer: &Writer<'_>, def: metadata::Field) -> Option<TokenStream> {
     let value = constant(def)?;
     let mut input = value.as_str();
 
@@ -106,7 +106,7 @@ fn initializer(writer: &Writer, def: metadata::Field) -> Option<TokenStream> {
 }
 
 fn field_initializer<'a>(
-    writer: &Writer,
+    writer: &Writer<'_>,
     field: metadata::Field,
     input: &'a str,
 ) -> (TokenStream, &'a str) {

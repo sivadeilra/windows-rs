@@ -2,7 +2,7 @@ use super::*;
 
 // TODO take Signature instead of MethodDef (wherever MethodDef is found)
 pub fn writer(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     generic_types: &[metadata::Type],
     kind: metadata::InterfaceKind,
@@ -152,7 +152,7 @@ pub fn writer(
     }
 }
 
-fn gen_winrt_params(writer: &Writer, params: &[metadata::SignatureParam]) -> TokenStream {
+fn gen_winrt_params(writer: &Writer<'_>, params: &[metadata::SignatureParam]) -> TokenStream {
     let mut result = quote! {};
 
     let mut generic_params = writer.generic_params(params);
@@ -185,7 +185,7 @@ fn gen_winrt_params(writer: &Writer, params: &[metadata::SignatureParam]) -> Tok
     result
 }
 
-fn gen_winrt_abi_args(writer: &Writer, params: &[metadata::SignatureParam]) -> TokenStream {
+fn gen_winrt_abi_args(writer: &Writer<'_>, params: &[metadata::SignatureParam]) -> TokenStream {
     let mut tokens = TokenStream::new();
     for param in params {
         let name = writer.param_name(param.def);
@@ -227,7 +227,7 @@ fn gen_winrt_abi_args(writer: &Writer, params: &[metadata::SignatureParam]) -> T
 }
 
 pub fn gen_upcall(
-    writer: &Writer,
+    writer: &Writer<'_>,
     sig: &metadata::Signature,
     inner: TokenStream,
     this: bool,
@@ -314,7 +314,7 @@ pub fn gen_upcall(
     }
 }
 
-fn gen_winrt_invoke_arg(writer: &Writer, param: &metadata::SignatureParam) -> TokenStream {
+fn gen_winrt_invoke_arg(writer: &Writer<'_>, param: &metadata::SignatureParam) -> TokenStream {
     let name = writer.param_name(param.def);
     let abi_size_name: TokenStream = format!("{}_array_size", param.def.name()).into();
 

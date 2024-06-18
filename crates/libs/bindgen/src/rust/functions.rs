@@ -1,7 +1,7 @@
 use super::*;
 use metadata::HasAttributes;
 
-pub fn writer(writer: &Writer, namespace: &str, def: metadata::MethodDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, namespace: &str, def: metadata::MethodDef) -> TokenStream {
     // TODO: remove inline functions from metadata
     if def.module_name() == "FORCEINLINE" {
         return quote! {};
@@ -21,7 +21,7 @@ pub fn writer(writer: &Writer, namespace: &str, def: metadata::MethodDef) -> Tok
     }
 }
 
-fn gen_sys_function(writer: &Writer, namespace: &str, def: metadata::MethodDef) -> TokenStream {
+fn gen_sys_function(writer: &Writer<'_>, namespace: &str, def: metadata::MethodDef) -> TokenStream {
     let signature = metadata::method_def_signature(namespace, def, &[]);
     let cfg = cfg::signature_cfg(writer, def);
 
@@ -34,7 +34,7 @@ fn gen_sys_function(writer: &Writer, namespace: &str, def: metadata::MethodDef) 
     tokens
 }
 
-fn gen_win_function(writer: &Writer, namespace: &str, def: metadata::MethodDef) -> TokenStream {
+fn gen_win_function(writer: &Writer<'_>, namespace: &str, def: metadata::MethodDef) -> TokenStream {
     let name = to_ident(def.name());
     let signature = metadata::method_def_signature(namespace, def, &[]);
     let generics = writer.constraint_generics(&signature.params);
@@ -201,7 +201,7 @@ fn gen_win_function(writer: &Writer, namespace: &str, def: metadata::MethodDef) 
     }
 }
 
-fn gen_link(writer: &Writer, namespace: &str, signature: &metadata::Signature) -> TokenStream {
+fn gen_link(writer: &Writer<'_>, namespace: &str, signature: &metadata::Signature) -> TokenStream {
     let name = signature.def.name();
     let ident = to_ident(name);
 

@@ -18,7 +18,7 @@ fn include_ext(relative_path: &str) -> TokenStream {
 }
 
 /// Generates extension code for a specific namespace
-pub fn gen_mod(_writer: &Writer, namespace: &str) -> TokenStream {
+pub fn gen_mod(_writer: &Writer<'_>, namespace: &str) -> TokenStream {
     match namespace {
         "Windows.Win32.UI.WindowsAndMessaging" => {
             include_ext("Win32/UI/WindowsAndMessaging/WindowLong.rs")

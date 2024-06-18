@@ -24,7 +24,7 @@ use rayon::prelude::*;
 use writer::*;
 
 pub fn from_reader(
-    reader: &'static metadata::Reader,
+    reader: &metadata::Reader,
     mut config: std::collections::BTreeMap<&str, &str>,
     output: &str,
 ) -> Result<()> {
@@ -81,7 +81,7 @@ pub fn from_reader(
     }
 }
 
-fn gen_file(writer: &Writer) -> Result<()> {
+fn gen_file(writer: &Writer<'_>) -> Result<()> {
     // TODO: harmonize this output code so we don't need these two wildly differnt code paths
     // there should be a simple way to generate the with or without namespaces.
 
@@ -100,7 +100,7 @@ fn gen_file(writer: &Writer) -> Result<()> {
     }
 }
 
-fn gen_package(writer: &Writer) -> Result<()> {
+fn gen_package(writer: &Writer<'_>) -> Result<()> {
     let directory = directory(&writer.output);
     let root = Tree::new(writer.reader);
     let mut root_len = 0;
@@ -177,9 +177,9 @@ use std::fmt::Write;
 use tokens::*;
 use try_format::*;
 
-fn namespace(writer: &Writer, tree: &Tree) -> String {
+fn namespace<'r>(writer: &Writer<'r>, tree: &Tree<'r>) -> String {
     let writer = &mut writer.clone();
-    writer.namespace = tree.namespace;
+    writer.namespace = tree.namespace.to_string();
     let mut tokens = TokenStream::new();
 
     for (name, tree) in &tree.nested {
@@ -204,7 +204,7 @@ fn namespace(writer: &Writer, tree: &Tree) -> String {
         std::collections::BTreeMap<&str, TokenStream>,
     >::new();
 
-    for item in writer.reader.namespace_items(writer.namespace) {
+    for item in writer.reader.namespace_items(&writer.namespace) {
         match item {
             metadata::Item::Type(def) => {
                 let type_name = def.type_name();
@@ -257,9 +257,9 @@ fn namespace(writer: &Writer, tree: &Tree) -> String {
     tokens.into_string()
 }
 
-fn namespace_impl(writer: &Writer, tree: &Tree) -> String {
+fn namespace_impl<'r>(writer: &Writer<'r>, tree: &Tree<'r>) -> String {
     let writer = &mut writer.clone();
-    writer.namespace = tree.namespace;
+    writer.namespace = tree.namespace.to_owned();
     let mut types = std::collections::BTreeMap::new();
 
     for item in writer.reader.namespace_items(tree.namespace) {

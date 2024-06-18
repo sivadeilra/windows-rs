@@ -9,24 +9,24 @@ fn size() {
     let reader = Reader::new(files);
 
     assert_eq!(
-        struct_size(reader, "Windows.Win32.System.Variant", "VARIANT"),
+        struct_size(&reader, "Windows.Win32.System.Variant", "VARIANT"),
         16
     );
     assert_eq!(
         struct_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.AllJoyn",
             "alljoyn_interfacedescription_property"
         ),
         16
     );
     assert_eq!(
-        struct_size(reader, "Windows.Win32.Networking.WinSock", "IN6_ADDR"),
+        struct_size(&reader, "Windows.Win32.Networking.WinSock", "IN6_ADDR"),
         16
     );
     assert_eq!(
         struct_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.BiometricFramework",
             "WINBIO_IDENTITY"
         ),
@@ -35,7 +35,7 @@ fn size() {
 
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.AllJoyn",
             "alljoyn_interfacedescription_property_eql"
         ),
@@ -43,7 +43,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.AllJoyn",
             "alljoyn_interfacedescription_property_getannotation"
         ),
@@ -51,7 +51,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.AllJoyn",
             "alljoyn_interfacedescription_property_getannotationatindex"
         ),
@@ -59,7 +59,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.AllJoyn",
             "alljoyn_interfacedescription_property_getannotationscount"
         ),
@@ -67,7 +67,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.BiometricFramework",
             "WinBioGetCredentialState"
         ),
@@ -75,19 +75,19 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Devices.BiometricFramework",
             "WinBioRemoveCredential"
         ),
         80
     );
     assert_eq!(
-        function_size(reader, "Windows.Win32.Graphics.Gdi", "AlphaBlend"),
+        function_size(&reader, "Windows.Win32.Graphics.Gdi", "AlphaBlend"),
         44
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Networking.Clustering",
             "RegisterClusterNotifyV2"
         ),
@@ -95,7 +95,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.NetworkManagement.Rras",
             "RtmConvertIpv6AddressAndLengthToNetAddress"
         ),
@@ -103,7 +103,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.NetworkManagement.WiFi",
             "WlanSetProfileEapUserData"
         ),
@@ -111,7 +111,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.Authentication.Identity",
             "AcceptSecurityContext"
         ),
@@ -119,7 +119,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.Authentication.Identity",
             "InitializeSecurityContextA"
         ),
@@ -127,7 +127,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.Authentication.Identity",
             "InitializeSecurityContextW"
         ),
@@ -135,7 +135,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.Authentication.Identity",
             "SaslAcceptSecurityContext"
         ),
@@ -143,7 +143,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.Authentication.Identity",
             "SaslInitializeSecurityContextA"
         ),
@@ -151,7 +151,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.Authentication.Identity",
             "SaslInitializeSecurityContextW"
         ),
@@ -159,7 +159,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerBeginSession"
         ),
@@ -167,7 +167,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerConfigBlob2Xml"
         ),
@@ -175,7 +175,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerGetIdentity"
         ),
@@ -183,7 +183,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerGetMethodProperties"
         ),
@@ -191,7 +191,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerInvokeConfigUI"
         ),
@@ -199,7 +199,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerInvokeIdentityUI"
         ),
@@ -207,7 +207,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerQueryCredentialInputFields"
         ),
@@ -215,7 +215,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Security.ExtensibleAuthenticationProtocol",
             "EapHostPeerQueryUserBlobFromCredentialInputFields"
         ),
@@ -223,7 +223,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Storage.CloudFilters",
             "CfDisconnectSyncRoot"
         ),
@@ -231,7 +231,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Storage.CloudFilters",
             "CfQuerySyncProviderStatus"
         ),
@@ -239,7 +239,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Storage.CloudFilters",
             "CfReportProviderProgress"
         ),
@@ -247,7 +247,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Storage.CloudFilters",
             "CfReportProviderProgress2"
         ),
@@ -255,35 +255,39 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.Storage.CloudFilters",
             "CfUpdateSyncProviderStatus"
         ),
         12
     );
     assert_eq!(
-        function_size(reader, "Windows.Win32.System.Com", "GetErrorInfo"),
+        function_size(&reader, "Windows.Win32.System.Com", "GetErrorInfo"),
         8
     );
     assert_eq!(
-        function_size(reader, "Windows.Win32.System.Console", "ReadConsoleOutputA"),
+        function_size(
+            &reader,
+            "Windows.Win32.System.Console",
+            "ReadConsoleOutputA"
+        ),
         20
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.System.Console",
             "ReadConsoleOutputAttribute"
         ),
         20
     );
     assert_eq!(
-        function_size(reader, "Windows.Win32.System.Ole", "VarI2FromCy"),
+        function_size(&reader, "Windows.Win32.System.Ole", "VarI2FromCy"),
         12
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.UI.Accessibility",
             "ItemContainerPattern_FindItemByProperty"
         ),
@@ -291,7 +295,7 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.UI.Accessibility",
             "TextRange_FindAttribute"
         ),
@@ -299,14 +303,14 @@ fn size() {
     );
     assert_eq!(
         function_size(
-            reader,
+            &reader,
             "Windows.Win32.UI.Accessibility",
             "UiaRaiseAutomationPropertyChangedEvent"
         ),
         40
     );
     assert_eq!(
-        function_size(reader, "Windows.Win32.System.Com", "CoInitializeEx"),
+        function_size(&reader, "Windows.Win32.System.Com", "CoInitializeEx"),
         8
     );
 }

@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if def
         .flags()
         .contains(metadata::TypeAttributes::WindowsRuntime)
@@ -11,7 +11,7 @@ pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     }
 }
 
-fn gen_callback(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+fn gen_callback(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     let name = to_ident(def.name());
     let method = metadata::type_def_invoke_method(def);
 
@@ -38,7 +38,7 @@ fn gen_callback(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     }
 }
 
-fn gen_delegate(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+fn gen_delegate(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if writer.sys {
         let name = to_ident(def.name());
         quote! {
@@ -49,7 +49,7 @@ fn gen_delegate(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     }
 }
 
-fn gen_win_delegate(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+fn gen_win_delegate(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     let name = to_ident(def.name());
     let vtbl = name.join("_Vtbl");
     let boxed = name.join("Box");
@@ -185,7 +185,7 @@ fn gen_win_delegate(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
 }
 
 fn gen_fn_constraint(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     signature: &metadata::Signature,
 ) -> TokenStream {

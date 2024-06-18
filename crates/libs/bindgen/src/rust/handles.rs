@@ -1,7 +1,7 @@
 use super::*;
 use metadata::{AsRow, HasAttributes};
 
-pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if writer.sys {
         gen_sys_handle(writer, def)
     } else {
@@ -9,7 +9,7 @@ pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     }
 }
 
-pub fn gen_sys_handle(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn gen_sys_handle(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     let ident = to_ident(def.name());
     match def.underlying_type() {
         metadata::Type::ISize if writer.std => quote! {
@@ -25,7 +25,7 @@ pub fn gen_sys_handle(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     }
 }
 
-pub fn gen_win_handle(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn gen_win_handle(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     let name = def.name();
     let ident = to_ident(name);
     let underlying_type = def.underlying_type();

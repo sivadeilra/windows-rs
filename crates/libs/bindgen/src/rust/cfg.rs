@@ -2,16 +2,16 @@ use super::*;
 use metadata::{AsRow, HasAttributes};
 
 #[derive(Default, Clone)]
-pub struct Cfg {
+pub struct Cfg<'a> {
     pub types:
-        std::collections::BTreeMap<&'static str, std::collections::BTreeSet<metadata::TypeDef>>,
+        std::collections::BTreeMap<&'a str, std::collections::BTreeSet<metadata::TypeDef>>,
     pub core_types: std::collections::BTreeSet<metadata::Type>,
-    pub arches: std::collections::BTreeSet<&'static str>,
+    pub arches: std::collections::BTreeSet<&'a str>,
     pub deprecated: bool,
 }
 
-impl Cfg {
-    pub fn add_feature(&mut self, feature: &'static str) {
+impl<'a> Cfg<'a> {
+    pub fn add_feature(&mut self, feature: &'a str) {
         self.types.entry(feature).or_default();
     }
     pub fn union(&self, mut other: Self) -> Self {
@@ -22,7 +22,7 @@ impl Cfg {
         union
     }
 
-    pub fn included(&self, writer: &Writer) -> bool {
+    pub fn included(&self, writer: &Writer<'a>) -> bool {
         if writer.package {
             for namespace in self.types.keys() {
                 if !writer.reader.includes_namespace(namespace) {
@@ -34,38 +34,38 @@ impl Cfg {
     }
 }
 
-pub fn field_cfg(writer: &Writer, row: metadata::Field) -> Cfg {
+pub fn field_cfg<'r>(writer: &Writer<'r>, row: metadata::Field) -> Cfg<'r> {
     let mut cfg = Cfg::default();
     field_cfg_combine(writer, row, None, &mut cfg);
     cfg
 }
-fn field_cfg_combine(
-    writer: &Writer,
+fn field_cfg_combine<'r>(
+    writer: &Writer<'r>,
     row: metadata::Field,
     enclosing: Option<metadata::TypeDef>,
-    cfg: &mut Cfg,
+    cfg: &mut Cfg<'r>,
 ) {
     type_cfg_combine(writer, &row.ty(enclosing), cfg)
 }
 
-pub fn type_def_cfg(writer: &Writer, row: metadata::TypeDef, generics: &[metadata::Type]) -> Cfg {
+pub fn type_def_cfg<'r>(writer: &Writer<'r>, row: metadata::TypeDef, generics: &[metadata::Type]) -> Cfg<'r> {
     let mut cfg = Cfg::default();
     type_def_cfg_combine(writer, row, generics, &mut cfg);
     cfg_add_attributes(&mut cfg, row);
     cfg
 }
-pub fn type_def_cfg_impl(
-    writer: &Writer,
+pub fn type_def_cfg_impl<'r>(
+    writer: &Writer<'r>,
     def: metadata::TypeDef,
     generics: &[metadata::Type],
-) -> Cfg {
+) -> Cfg<'r> {
     let mut cfg = Cfg::default();
 
-    fn combine(
-        writer: &Writer,
+    fn combine<'r>(
+        writer: &Writer<'r>,
         def: metadata::TypeDef,
         generics: &[metadata::Type],
-        cfg: &mut Cfg,
+        cfg: &mut Cfg<'r>,
     ) {
         type_def_cfg_combine(writer, def, generics, cfg);
 
@@ -85,11 +85,11 @@ pub fn type_def_cfg_impl(
     cfg_add_attributes(&mut cfg, def);
     cfg
 }
-pub fn type_def_cfg_combine(
-    writer: &Writer,
+pub fn type_def_cfg_combine<'r>(
+    writer: &Writer<'r>,
     row: metadata::TypeDef,
     generics: &[metadata::Type],
-    cfg: &mut Cfg,
+    cfg: &mut Cfg<'r>,
 ) {
     let type_kind = row.kind();
 
@@ -151,13 +151,13 @@ pub fn type_def_cfg_combine(
     }
 }
 
-pub fn signature_cfg(writer: &Writer, method: metadata::MethodDef) -> Cfg {
+pub fn signature_cfg<'r>(writer: &Writer<'r>, method: metadata::MethodDef) -> Cfg<'r> {
     let mut cfg = Cfg::default();
     signature_cfg_combine(writer, &method.signature(&[]), &mut cfg);
     cfg_add_attributes(&mut cfg, method);
     cfg
 }
-fn signature_cfg_combine(writer: &Writer, signature: &metadata::MethodDefSig, cfg: &mut Cfg) {
+fn signature_cfg_combine<'r>(writer: &Writer<'r>, signature: &metadata::MethodDefSig, cfg: &mut Cfg<'r>) {
     type_cfg_combine(writer, &signature.return_type, cfg);
     signature
         .params
@@ -165,7 +165,7 @@ fn signature_cfg_combine(writer: &Writer, signature: &metadata::MethodDefSig, cf
         .for_each(|param| type_cfg_combine(writer, param, cfg));
 }
 
-fn cfg_add_attributes<R: AsRow + Into<metadata::HasAttribute>>(cfg: &mut Cfg, row: R) {
+fn cfg_add_attributes<'r, R: AsRow + Into<metadata::HasAttribute>>(cfg: &mut Cfg<'r>, row: R) {
     for attribute in row.attributes() {
         match attribute.name() {
             "SupportedArchitectureAttribute" => {
@@ -192,13 +192,13 @@ fn cfg_add_attributes<R: AsRow + Into<metadata::HasAttribute>>(cfg: &mut Cfg, ro
     }
 }
 
-pub fn type_cfg(writer: &Writer, ty: &metadata::Type) -> Cfg {
+pub fn type_cfg<'r>(writer: &Writer<'r>, ty: &metadata::Type) -> Cfg<'r> {
     let mut cfg = Cfg::default();
     type_cfg_combine(writer, ty, &mut cfg);
     cfg
 }
 
-fn type_cfg_combine(writer: &Writer, ty: &metadata::Type, cfg: &mut Cfg) {
+fn type_cfg_combine<'r>(writer: &Writer<'r>, ty: &metadata::Type, cfg: &mut Cfg<'r>) {
     match ty {
         metadata::Type::TypeDef(row, generics) => type_def_cfg_combine(writer, *row, generics, cfg),
         metadata::Type::Win32Array(ty, _) => type_cfg_combine(writer, ty, cfg),

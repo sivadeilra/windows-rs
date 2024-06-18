@@ -1,6 +1,6 @@
 use std::io::Write;
 
-pub fn try_format(writer: &super::Writer, tokens: &str) -> String {
+pub fn try_format(writer: &super::Writer<'_>, tokens: &str) -> String {
     let preamble = if writer.no_bindgen_comment {
         String::new()
     } else {

@@ -1,7 +1,7 @@
 use super::*;
 use metadata::HasAttributes;
 
-pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if def.has_attribute("ApiContractAttribute") {
         return quote! {};
     }
@@ -23,10 +23,10 @@ pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
 }
 
 fn gen_struct_with_name(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     struct_name: &str,
-    cfg: &cfg::Cfg,
+    cfg: &cfg::Cfg<'_>,
 ) -> TokenStream {
     let name = to_ident(struct_name);
     let flags = def.flags();
@@ -123,10 +123,10 @@ fn gen_struct_with_name(
 }
 
 fn gen_windows_traits(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     name: &TokenStream,
-    cfg: &cfg::Cfg,
+    cfg: &cfg::Cfg<'_>,
 ) -> TokenStream {
     if writer.sys {
         quote! {}
@@ -165,7 +165,7 @@ fn gen_windows_traits(
     }
 }
 
-fn gen_derive(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+fn gen_derive(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     let mut derive = std::collections::BTreeSet::new();
 
     if !writer.sys
@@ -207,10 +207,10 @@ fn gen_derive(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
 }
 
 fn gen_clone(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     name: &TokenStream,
-    cfg: &cfg::Cfg,
+    cfg: &cfg::Cfg<'_>,
 ) -> TokenStream {
     if writer.sys
         || metadata::type_def_is_copyable(def)
@@ -235,10 +235,10 @@ fn gen_clone(
 }
 
 fn gen_struct_constants(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     struct_name: &TokenStream,
-    cfg: &cfg::Cfg,
+    cfg: &cfg::Cfg<'_>,
 ) -> TokenStream {
     let features = writer.cfg_features(cfg);
 

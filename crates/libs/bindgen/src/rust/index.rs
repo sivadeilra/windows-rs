@@ -17,16 +17,17 @@ struct IndexItem {
     features: Vec<usize>,
 }
 
-pub fn gen_index(writer: &Writer) -> String {
+pub fn gen_index(writer: &Writer<'_>) -> String {
     let mut feature_index = Index {
         ..Default::default()
     };
 
-    for namespace in writer.reader.namespaces() {
+    for _namespace in writer.reader.namespaces() {
+        let namespace = "";
         let namespace_idx = match feature_index
             .namespace_map
             .iter()
-            .position(|ns| ns == namespace)
+            .position(|ns| ns == _namespace)
         {
             Some(idx) => idx,
             None => {
@@ -35,7 +36,7 @@ pub fn gen_index(writer: &Writer) -> String {
             }
         };
 
-        for item in writer.reader.namespace_items(namespace) {
+        for item in writer.reader.namespace_items(_namespace) {
             let mut index_item = IndexItem {
                 ..Default::default()
             };

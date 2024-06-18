@@ -24,7 +24,7 @@ pub struct Reader {
 }
 
 impl Reader {
-    pub fn new(files: Vec<File>) -> &'static Self {
+    pub fn new(files: Vec<File>) -> Box<Self> {
         let mut config = BTreeMap::new();
         config.insert("sys", "");
         Self::filter(files, &[], &[], &config)
@@ -35,16 +35,16 @@ impl Reader {
         include: &[&str],
         exclude: &[&str],
         config: &BTreeMap<&str, &str>,
-    ) -> &'static Self {
-        let reader: &'static mut Reader = Box::leak(Box::new(Self {
+    ) -> Box<Self> {
+        let mut reader = Box::new(Self {
             items: Default::default(),
             nested: Default::default(),
             filter: Filter::new(include, exclude),
             sys: config.contains_key("sys"),
-        }));
+        });
 
         for mut file in files {
-            file.reader = reader as *mut Reader;
+            file.reader = (&mut *reader) as *mut Reader;
             let file = Box::leak(Box::new(file));
 
             for def in file.table::<TypeDef>() {

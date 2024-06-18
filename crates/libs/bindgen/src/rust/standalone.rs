@@ -1,7 +1,7 @@
 use super::*;
 use metadata::AsRow;
 
-pub fn standalone_imp(writer: &Writer) -> String {
+pub fn standalone_imp(writer: &Writer<'_>) -> String {
     let mut types = std::collections::BTreeSet::new();
     let mut functions = std::collections::BTreeSet::new();
     let mut constants = std::collections::BTreeSet::new();
@@ -116,7 +116,7 @@ impl SortedTokens {
 }
 
 fn item_collect_standalone(
-    writer: &Writer,
+    writer: &Writer<'_>,
     item: metadata::Item,
     set: &mut std::collections::BTreeSet<metadata::Type>,
 ) {
@@ -139,7 +139,7 @@ fn item_collect_standalone(
 }
 // TODO: remove or move to riddle
 fn type_collect_standalone(
-    writer: &Writer,
+    writer: &Writer<'_>,
     ty: &metadata::Type,
     set: &mut std::collections::BTreeSet<metadata::Type>,
 ) {
@@ -238,7 +238,7 @@ fn type_collect_standalone(
 }
 
 fn type_collect_standalone_nested(
-    writer: &Writer,
+    writer: &Writer<'_>,
     td: metadata::TypeDef,
     set: &mut std::collections::BTreeSet<metadata::Type>,
 ) {

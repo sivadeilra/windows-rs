@@ -1,7 +1,7 @@
 use super::*;
 use metadata::HasAttributes;
 
-pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+pub fn writer(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if !def
         .flags()
         .contains(metadata::TypeAttributes::WindowsRuntime)
@@ -23,7 +23,7 @@ pub fn writer(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
     }
 }
 
-fn gen_class(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
+fn gen_class(writer: &Writer<'_>, def: metadata::TypeDef) -> TokenStream {
     if def.extends() == Some(metadata::TypeName::Attribute) {
         return TokenStream::new();
     }
@@ -168,11 +168,11 @@ fn gen_class(writer: &Writer, def: metadata::TypeDef) -> TokenStream {
 }
 
 fn gen_conversions(
-    writer: &Writer,
+    writer: &Writer<'_>,
     def: metadata::TypeDef,
     ident: &TokenStream,
     interfaces: &[metadata::Interface],
-    cfg: &cfg::Cfg,
+    cfg: &cfg::Cfg<'_>,
 ) -> TokenStream {
     let features = writer.cfg_features(cfg);
     let mut tokens = quote! {
