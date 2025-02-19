@@ -4,7 +4,13 @@
 //!
 //! Learn more about Rust for Windows here: <https://github.com/microsoft/windows-rs>
 
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use quote::{quote, ToTokens};
+
+#[cfg(test)]
+mod tests;
 
 /// Implements one or more COM interfaces.
 ///
@@ -27,7 +33,7 @@ use quote::{quote, ToTokens};
 ///     }
 /// }
 ///
-/// let object: IValue = Value(123).into();
+/// let object: IValue = ComObject::new(Value(123)).into_interface();
 /// // Call interface methods...
 /// ```
 #[proc_macro_attribute]
@@ -35,7 +41,14 @@ pub fn implement(
     attributes: proc_macro::TokenStream,
     type_tokens: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let attributes = syn::parse_macro_input!(attributes as ImplementAttributes);
+    implement_core(attributes.into(), type_tokens.into()).into()
+}
+
+fn implement_core(
+    attributes: proc_macro2::TokenStream,
+    type_tokens: proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let attributes = syn::parse2::<ImplementAttributes>(attributes).unwrap();
     let interfaces_len = proc_macro2::Literal::usize_unsuffixed(attributes.implement.len());
 
     let identity_type = if let Some(first) = attributes.implement.first() {
@@ -44,7 +57,7 @@ pub fn implement(
         quote! { ::windows_core::IInspectable }
     };
 
-    let mut original_type = syn::parse_macro_input!(type_tokens as syn::ItemStruct);
+    let mut original_type = syn::parse2::<syn::ItemStruct>(type_tokens).unwrap();
 
     // Check the user type definition for a field marked with #[base]. If we find one, then
     // _remove_ the attribute from the field.
@@ -102,13 +115,54 @@ pub fn implement(
     // let interfaces_ident = quote::format_ident!("{}_Interfaces", original_ident);
 
     // The list of vtable identifiers for the top-level interface changes for this object.
+    /*
     let vtbl_idents = attributes
         .implement
         .iter()
         .map(|implement| implement.to_vtbl_ident());
     let vtbl_idents2 = vtbl_idents.clone();
+    */
+
+    // Make the "const VTABLE_1: ..." items.
+    let mut const_vtables_list = quote!();
+    let mut vtables_field_decls = quote!();
+    let mut vtbl_initializers = quote!();
+
+    vtables_field_decls.extend(quote! {
+        identity: &'static ::windows_core::IInspectable_Vtbl,
+    });
+
+    const_vtables_list.extend(quote! {
+        const IDENTITY: ::windows_core::IInspectable_Vtbl = ::windows_core::IInspectable_Vtbl::new::<Self, #identity_type, 0>();
+    });
+
+    vtbl_initializers.extend(quote! {
+        identity: &::windows_core::IInspectable_Vtbl::new::<Self, #identity_type, 0>(),
+    });
+
+    for (i, implement) in attributes.implement.iter().enumerate() {
+        let interface_index = i + 1; // +1 for the Identity interface chain
+        let vtbl_ident = implement.to_vtbl_ident();
+        let vtbl_const_ident = syn::Ident::new(&format!("VTABLE_{interface_index}"), implement.span);
+        let vtbl_offset: isize = -(interface_index as isize);
+
+        const_vtables_list.extend(quote! {
+            const #vtbl_const_ident: #vtbl_ident = #vtbl_ident::new::<Self, #vtbl_offset>();
+        });
+
+        let vtbl_field_ident = syn::Ident::new(&format!("vtable_{interface_index}"), implement.span);
+
+        vtables_field_decls.extend(quote! {
+            #vtbl_field_ident: &'static #vtbl_ident,
+        });
+
+        vtbl_initializers.extend(quote! {
+            #vtbl_field_ident: #vtbl_ident::new::<Self, #vtbl_offset>(),
+        });
+    }
 
     // A list of "new()" expressions for the vtables of the type.
+    /*
     let vtable_news = attributes
         .implement
         .iter()
@@ -118,6 +172,7 @@ pub fn implement(
             let offset = proc_macro2::Literal::isize_unsuffixed(-1 - enumerate as isize);
             quote! { #vtbl_ident::new::<Self, #offset>() }
         });
+        */
 
     let offset = attributes
         .implement
@@ -206,15 +261,14 @@ pub fn implement(
         #[repr(C)]
         #[allow(non_camel_case_types)]
         #vis struct #impl_ident #generics where #constraints {
-            identity: &'static ::windows_core::IInspectable_Vtbl,
-            vtables: (#(&'static #vtbl_idents,)*),
+            #vtables_field_decls
             this: #original_ident::#generics,
             count: ::windows_core::imp::WeakRefCount,
         }
 
         impl #generics #impl_ident::#generics where #constraints {
-            const VTABLES: (#(#vtbl_idents2,)*) = (#(#vtable_news,)*);
-            const IDENTITY: ::windows_core::IInspectable_Vtbl = ::windows_core::IInspectable_Vtbl::new::<Self, #identity_type, 0>();
+            // TODO: maybe remove const_vtables_list entirely
+            // #const_vtables_list
         }
 
         impl #generics #original_ident::#generics where #constraints {
@@ -241,8 +295,7 @@ pub fn implement(
             #[inline(always)]
             const fn into_outer(self) -> #impl_ident::#generics {
                 #impl_ident::#generics {
-                    identity: &#impl_ident::#generics::IDENTITY,
-                    vtables: (#(&#impl_ident::#generics::VTABLES.#offset,)*),
+                    #vtbl_initializers
                     this: self,
                     count: ::windows_core::imp::WeakRefCount::new(),
                 }
@@ -446,8 +499,8 @@ pub fn implement(
         #(#conversions)*
     };
 
-    let mut tokens: proc_macro::TokenStream = tokens.into();
-    tokens.extend(proc_macro::TokenStream::from(original_type.into_token_stream()));
+    let mut tokens: proc_macro2::TokenStream = tokens.into();
+    tokens.extend(proc_macro2::TokenStream::from(original_type.into_token_stream()));
     tokens
 }
 
@@ -458,10 +511,11 @@ struct BaseClassInfo {
 }
 
 
-#[derive(Default)]
+// #[derive(Default)]
 struct ImplementType {
     type_name: String,
     generics: Vec<ImplementType>,
+    span: proc_macro2::Span,
 }
 
 impl ImplementType {
@@ -571,6 +625,7 @@ impl UseTree2 {
 
                 Ok(ImplementType {
                     type_name,
+                    span: input.ident.span(),
                     generics,
                 })
             }
