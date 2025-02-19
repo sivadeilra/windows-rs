@@ -33,7 +33,7 @@ use quote::{quote, ToTokens};
 #[proc_macro_attribute]
 pub fn implement(
     attributes: proc_macro::TokenStream,
-    original_type: proc_macro::TokenStream,
+    type_tokens: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let attributes = syn::parse_macro_input!(attributes as ImplementAttributes);
     let interfaces_len = proc_macro2::Literal::usize_unsuffixed(attributes.implement.len());
@@ -44,31 +44,71 @@ pub fn implement(
         quote! { ::windows_core::IInspectable }
     };
 
-    let original_type2 = original_type.clone();
-    let original_type2 = syn::parse_macro_input!(original_type2 as syn::ItemStruct);
-    let vis = &original_type2.vis;
-    let original_ident = &original_type2.ident;
+    let mut original_type = syn::parse_macro_input!(type_tokens as syn::ItemStruct);
+
+    // Check the user type definition for a field marked with #[base]. If we find one, then
+    // _remove_ the attribute from the field.
+    let mut base_class_info: Option<BaseClassInfo> = None;
+    match original_type.fields {
+        syn::Fields::Named(ref mut named) => {
+            for field in named.named.iter_mut() {
+                println!("checking field: {:?}", field.ident);
+                let field_ident: syn::Ident = field.ident.clone().unwrap();
+                if let Some(base_attr_index) =
+                    field.attrs.iter().position(|a| a.path().is_ident("base"))
+                {
+                    println!("found #[base] on '{:?}'", field.ident);
+                    if base_class_info.is_some() {
+                        return syn::Error::new(
+                            field_ident.span(),
+                            "cannot declare more than one field with #[base]",
+                        )
+                        .into_compile_error()
+                        .into();
+                    } else {
+                        base_class_info = Some(BaseClassInfo {
+                            field_ident,
+                            field_ty: field.ty.clone(),
+                        });
+                        // Remove the attribute, so that it is not emitted later.
+                        field.attrs.remove(base_attr_index);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let vis = original_type.vis.clone();
+    let original_ident = &original_type.ident.clone();
     let mut constraints = quote! {};
 
-    if let Some(where_clause) = &original_type2.generics.where_clause {
+    if let Some(where_clause) = &original_type.generics.where_clause {
         where_clause.predicates.to_tokens(&mut constraints);
     }
 
-    let generics = if original_type2.generics.lt_token.is_some() {
+    let generics = if original_type.generics.lt_token.is_some() {
         let mut params = quote! {};
-        original_type2.generics.params.to_tokens(&mut params);
+        original_type.generics.params.to_tokens(&mut params);
         quote! { <#params> }
     } else {
         quote! { <> }
     };
 
+    // The identifier of the Foo_Impl struct for this type.
     let impl_ident = quote::format_ident!("{}_Impl", original_ident);
+
+    // The identifier of the generated Foo_Interfaces struct for this type.
+    // let interfaces_ident = quote::format_ident!("{}_Interfaces", original_ident);
+
+    // The list of vtable identifiers for the top-level interface changes for this object.
     let vtbl_idents = attributes
         .implement
         .iter()
         .map(|implement| implement.to_vtbl_ident());
     let vtbl_idents2 = vtbl_idents.clone();
 
+    // A list of "new()" expressions for the vtables of the type.
     let vtable_news = attributes
         .implement
         .iter()
@@ -100,7 +140,7 @@ pub fn implement(
         });
 
     // Dynamic casting requires that the object not contain non-static lifetimes.
-    let enable_dyn_casting = original_type2.generics.lifetimes().count() == 0;
+    let enable_dyn_casting = original_type.generics.lifetimes().count() == 0;
     let dynamic_cast_query = if enable_dyn_casting {
         quote! {
             else if *iid == ::windows_core::DYNAMIC_CAST_IID {
@@ -407,9 +447,16 @@ pub fn implement(
     };
 
     let mut tokens: proc_macro::TokenStream = tokens.into();
-    tokens.extend(core::iter::once(original_type));
+    tokens.extend(proc_macro::TokenStream::from(original_type.into_token_stream()));
     tokens
 }
+
+#[allow(dead_code)]
+struct BaseClassInfo {
+    field_ident: syn::Ident,
+    field_ty: syn::Type,
+}
+
 
 #[derive(Default)]
 struct ImplementType {

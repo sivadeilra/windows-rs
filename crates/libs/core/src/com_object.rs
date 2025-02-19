@@ -75,6 +75,57 @@ pub struct ComObject<T: ComObjectInner> {
     ptr: NonNull<T::Outer>,
 }
 
+/// This structure describes the layout of the memory allocation that is managed by ComObject.
+/// The `T` type parameter is the "outer" object for a user data type.
+///
+/// User code should never be able to get access to the contents of this struct.
+#[repr(C)]
+pub struct ComObjectLayout<T: IUnknownImpl> {
+    /// Vtable for this COM object
+    pub vtable: &'static ComObjectVtbl,
+
+    // // TODO: make this conditional on aggregation (present only when _not_ aggregated)
+    /// Reference count
+    pub count: ::windows_core::imp::WeakRefCount,
+
+    /// The app data stored within the COM object. This is the "outer" version of the value.
+    ///
+    /// This is Foo_Impl of some kind. In most cases, it's a single ordinary Foo_Impl.
+    /// For aggregated
+    pub value: T,
+}
+
+/// This structure describes the layout of the memory allocation that is managed by ComObject
+/// for an aggregated type. An aggregated type is one that has a base class.
+#[repr(C)]
+pub struct ComObjectAggregatedLayout<Base, Derived: IUnknownImpl> {
+    /// The base type.
+    pub base: Base,
+
+    /// The derived type. This is an "outer" value.
+    pub derived: Derived,
+}
+
+/// This is a hand-rolled vtable for `ComObjectLayout<T>`.
+pub struct ComObjectVtbl {
+    /// QueryInterface impl
+    pub query_interface: unsafe fn(
+        *const Self,
+        iid: *const crate::GUID,
+        interface: *mut *mut ::core::ffi::c_void,
+    ) -> crate::HRESULT,
+
+    /// Destructor
+    pub drop_in_place: unsafe fn(*mut Self),
+}
+
+/// This is used in private fields of generated `Foo_Impl` types in order to prevent them
+/// from being constructible in safe code.
+#[repr(transparent)]
+pub struct ComObjectConstructorBrand {
+    _marker: (),
+}
+
 impl<T: ComObjectInner> ComObject<T> {
     /// Allocates a heap cell (box) and moves `value` into it. Returns a counted pointer to `value`.
     pub fn new(value: T) -> Self {
