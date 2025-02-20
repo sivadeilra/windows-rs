@@ -7,13 +7,15 @@ pub(crate) fn gen_all(inputs: &ImplementInputs) -> proc_macro2::TokenStream {
     let original_ident = &inputs.original_type.ident;
 
     // Contains tokens that will be added to the impl block for the generated Foo_Impl type.
-    let mut impl_items = quote!();
+    let mut impl_items: Vec<syn::ImplItem> = Vec::new();
+
+    impl_items.extend(gen_vtable_consts(inputs));
 
     if let Some(ref base_class_info) = inputs.base_class_info {
         // Emit a method which allows the app to go from &Derived_Impl to &Base_Impl.
         let base_field_ident = &base_class_info.field_ident;
         let base_ty = &base_class_info.field_ty;
-        impl_items.extend(quote! {
+        impl_items.push(parse_quote! {
             /// Provides access to the base object.
             // TODO: Handle generics for the base type.
             pub fn base(&self) -> &#base_ty {
@@ -32,7 +34,12 @@ pub(crate) fn gen_all(inputs: &ImplementInputs) -> proc_macro2::TokenStream {
     let mut original_impl_items = quote!();
     original_impl_items.extend(gen::gen_into_outer(&inputs).into_token_stream());
 
-    if inputs.base_class_info.is_none() {
+    // Static COM objects have a lot of constraints. They can't be generic (open parameters),
+    // because that would be meaningless (an open generic type cannot have a known representation).
+    //
+    // Right now, we can't generate static COM objects that have base classes because we rely on
+    // boxing and then unboxing during construction of aggregated types.
+    if inputs.base_class_info.is_none() && !inputs.is_generic {
         original_impl_items.extend(quote! {
             /// This converts a partially-constructed COM object (in the sense that it contains
             /// application state but does not yet have vtable and reference count constructed)
@@ -46,7 +53,7 @@ pub(crate) fn gen_all(inputs: &ImplementInputs) -> proc_macro2::TokenStream {
 
     let mut tokens = quote! {
         impl #generics #impl_ident::#generics where #constraints {
-            #impl_items
+            #(#impl_items)*
         }
 
         impl #generics #original_ident::#generics where #constraints {
@@ -86,7 +93,7 @@ pub(crate) fn gen_all(inputs: &ImplementInputs) -> proc_macro2::TokenStream {
 }
 
 // Generates the structure definition for the `Foo_Impl` type.
-pub(crate) fn gen_impl_struct(inputs: &ImplementInputs) -> syn::ItemStruct {
+fn gen_impl_struct(inputs: &ImplementInputs) -> syn::ItemStruct {
     let vis = &inputs.original_type.vis;
     let impl_ident = &inputs.impl_ident;
     let generics = &inputs.generics;
@@ -136,7 +143,7 @@ pub(crate) fn gen_impl_struct(inputs: &ImplementInputs) -> syn::ItemStruct {
 }
 
 /// Generates the `IUnknownImpl` implementation for the `Foo_Impl` type.
-pub(crate) fn gen_iunknown_impl(inputs: &ImplementInputs) -> syn::ItemImpl {
+fn gen_iunknown_impl(inputs: &ImplementInputs) -> syn::ItemImpl {
     let generics = &inputs.generics;
     let constraints = &inputs.constraints;
     let impl_ident = &inputs.impl_ident;
@@ -296,35 +303,37 @@ fn gen_query_interface(inputs: &ImplementInputs) -> syn::ImplItemFn {
             iid: *const ::windows_core::GUID,
             interface: *mut *mut ::core::ffi::c_void,
         ) -> ::windows_core::HRESULT {
-            #base_query
+            unsafe {
+                #base_query
 
-            if iid.is_null() || interface.is_null() {
-                return ::windows_core::imp::E_POINTER;
+                if iid.is_null() || interface.is_null() {
+                    return ::windows_core::imp::E_POINTER;
+                }
+
+                let iid = *iid;
+                let count_field = ::windows_core::IUnknownImpl::count_field(self);
+
+                let interface_ptr: *const ::core::ffi::c_void = 'found: {
+                    #identity_query
+                    #(#queries)*
+                    #dynamic_cast_query
+                    #tear_off_query
+
+                    *interface = ::core::ptr::null_mut();
+                    return ::windows_core::imp::E_NOINTERFACE;
+                };
+
+                debug_assert!(!interface_ptr.is_null());
+                *interface = interface_ptr as *mut ::core::ffi::c_void;
+                count_field.add_ref();
+                return ::windows_core::HRESULT(0);
             }
-
-            let iid = *iid;
-            let count_field = ::windows_core::IUnknownImpl::count_field(self);
-
-            let interface_ptr: *const ::core::ffi::c_void = 'found: {
-                #identity_query
-                #(#queries)*
-                #dynamic_cast_query
-                #tear_off_query
-
-                *interface = ::core::ptr::null_mut();
-                return ::windows_core::imp::E_NOINTERFACE;
-            };
-
-            debug_assert!(!interface_ptr.is_null());
-            *interface = interface_ptr as *mut ::core::ffi::c_void;
-            count_field.add_ref();
-            return ::windows_core::HRESULT(0);
         }
     }
 }
 
 /// Generates the implementation of `ComObjectInner`.
-pub(crate) fn gen_impl_com_object_inner(inputs: &ImplementInputs) -> syn::ItemImpl {
+fn gen_impl_com_object_inner(inputs: &ImplementInputs) -> syn::ItemImpl {
     let original_ident = &inputs.original_type.ident;
     let generics = &inputs.generics;
     let constraints = &inputs.constraints;
@@ -337,7 +346,7 @@ pub(crate) fn gen_impl_com_object_inner(inputs: &ImplementInputs) -> syn::ItemIm
     }
 }
 
-pub(crate) fn gen_impl_into_com_object(inputs: &ImplementInputs) -> syn::ItemImpl {
+fn gen_impl_into_com_object(inputs: &ImplementInputs) -> syn::ItemImpl {
     let original_ident = &inputs.original_type.ident;
     let generics = &inputs.generics;
     let constraints = &inputs.constraints;
@@ -393,58 +402,83 @@ pub(crate) fn gen_impl_into_com_object(inputs: &ImplementInputs) -> syn::ItemImp
     }
 }
 
-pub(crate) fn gen_into_outer(inputs: &ImplementInputs) -> syn::TraitItemFn {
-    // let original_ident = &inputs.original_type.ident;
-    let generics = &inputs.generics;
-    // let constraints = &inputs.constraints;
+/// Generates a set of associated constants that describe the vtables for this type.
+///
+/// e.g. `const VTABLE_INTERFACE4_IFOO: IFoo_Vtbl = ...`
+fn gen_vtable_consts(inputs: &ImplementInputs) -> Vec<syn::ImplItem> {
+    let mut items = Vec::new();
+
     let impl_ident = &inputs.impl_ident;
+    let generics = &inputs.generics;
 
     // let identity_type = if let Some(first) = attributes.implement.first() {
     //     first.to_ident()
     // } else {
     //     quote! { ::windows_core::IInspectable }
     // };
-
     let identity_type = quote! { ::windows_core::IInspectable };
+
+    if inputs.base_class_info.is_none() {
+        items.push(parse_quote! {
+            const VTABLE_IDENTITY: ::windows_core::IInspectable_Vtbl =
+                ::windows_core::IInspectable_Vtbl::new::<
+                    #impl_ident::#generics,
+                    #identity_type,
+                    0, // #chain_offset_expression,
+                >();
+        });
+    }
+
+    for (interface_index, interface_chain) in inputs.interface_chains.iter().enumerate() {
+        let vtbl_ty = interface_chain.implement.to_vtbl_ident();
+        let chain_ident = &interface_chain.field_ident;
+        let vtable_const_ident = &interface_chain.vtable_const_ident;
+
+        let chain_offset_expression = if inputs.is_generic {
+            let chain_offset_in_pointers: isize = -1 - interface_index as isize;
+            quote!(#chain_offset_in_pointers)
+        } else {
+            quote! {
+                // The nested { ... } scope is necessary; do not remove it.
+                {
+                    -((::core::mem::offset_of!(
+                        // <Self as ::windows_core::ComObjectInner>::Outer,
+                        #impl_ident::#generics,
+                        #chain_ident) / ::core::mem::size_of::<*const u8>()) as isize)
+                }
+            }
+        };
+
+        items.push(parse_quote! {
+            const #vtable_const_ident: #vtbl_ty = #vtbl_ty::new::<
+                #impl_ident::#generics,
+                #chain_offset_expression,
+            >();
+        });
+    }
+
+    items
+}
+
+fn gen_into_outer(inputs: &ImplementInputs) -> syn::TraitItem {
+    // let original_ident = &inputs.original_type.ident;
+    let generics = &inputs.generics;
+    let impl_ident = &inputs.impl_ident;
 
     let mut vtbl_initializers = quote!();
 
     if inputs.base_class_info.is_none() {
         vtbl_initializers.extend(quote! {
-            identity: {
-                const CHAIN_FIELD_BYTE_OFFSET: usize = ::core::mem::offset_of!(#impl_ident::#generics, identity);
-                const CHAIN_FIELD_POINTER_OFFSET: isize = {
-                    if CHAIN_FIELD_BYTE_OFFSET % ::core::mem::size_of::<*const u8>() != 0 {
-                        panic!("Interface chain offset is not properly aligned");
-                    }
-                    -((CHAIN_FIELD_BYTE_OFFSET / ::core::mem::size_of::<*const u8>()) as isize)
-                };
-
-                static VTABLE: ::windows_core::IInspectable_Vtbl =
-                    ::windows_core::IInspectable_Vtbl::new::<#impl_ident, #identity_type, 0>();
-                &VTABLE
-            },
+            identity: &#impl_ident::#generics::VTABLE_IDENTITY,
         });
     }
 
     for interface_chain in inputs.interface_chains.iter() {
-        let vtbl_ty = interface_chain.implement.to_vtbl_ident();
         let vtbl_field_ident = &interface_chain.field_ident;
-        let chain_ident = &interface_chain.field_ident;
+        let vtable_const_ident = &interface_chain.vtable_const_ident;
 
         vtbl_initializers.extend(quote! {
-            #vtbl_field_ident: {
-                const CHAIN_FIELD_BYTE_OFFSET: usize = ::core::mem::offset_of!(#impl_ident::#generics, #chain_ident);
-                const CHAIN_FIELD_POINTER_OFFSET: isize = {
-                    if CHAIN_FIELD_BYTE_OFFSET % ::core::mem::size_of::<*const u8>() != 0 {
-                        panic!("Interface chain offset is not properly aligned");
-                    }
-                    -((CHAIN_FIELD_BYTE_OFFSET / ::core::mem::size_of::<*const u8>()) as isize)
-                };
-
-                static VTABLE: #vtbl_ty = #vtbl_ty::new::<#impl_ident, CHAIN_FIELD_POINTER_OFFSET>();
-                &VTABLE
-            },
+            #vtbl_field_ident: &#impl_ident::#generics::#vtable_const_ident,
         });
     }
 
@@ -473,6 +507,13 @@ pub(crate) fn gen_into_outer(inputs: &ImplementInputs) -> syn::TraitItemFn {
             }
         }
     } else {
+        // If the type is generic then into_outer() cannot be a const fn.
+        let maybe_const = if inputs.is_generic {
+            quote!()
+        } else {
+            quote!(const)
+        };
+
         parse_quote! {
             // This constructs an "outer" object. This should only be used by the implementation
             // of the outer object, never by application code.
@@ -487,31 +528,28 @@ pub(crate) fn gen_into_outer(inputs: &ImplementInputs) -> syn::TraitItemFn {
             // TODO: Make it impossible for app code to call this function, by placing it in a
             // module and marking this as private to the module.
             #[inline(always)]
-            const fn into_outer(self) -> #impl_ident::#generics {
+            #maybe_const fn into_outer(self) -> #impl_ident::#generics {
 
-                unsafe fn destroy_this(this: *mut ::core::ffi::c_void) {
-                    unsafe {
-                        let self_ = this as *mut #impl_ident::#generics;
-                        _ = ::windows_core::imp::Box::from_raw(self_);
-                    }
-                }
-
-                unsafe fn query_interface_this(
-                    this: *const ::core::ffi::c_void,
-                    iid: *const ::windows_core::GUID,
-                    interface: *mut *mut ::core::ffi::c_void,
-                ) -> ::windows_core::HRESULT {
-                    unsafe {
-                        let self_ = &*(this as *mut #impl_ident::#generics);
-                        self_.query_interface_this(iid, interface)
-                    }
-                }
 
                 #impl_ident::#generics {
                     header: ::windows_core::ComObjectHeader {
                         count: ::windows_core::imp::WeakRefCount::new(),
-                        destructor: destroy_this,
-                        query_interface: query_interface_this,
+                        destructor: |this: *mut ::core::ffi::c_void| {
+                            unsafe {
+                                let self_ = this as *mut #impl_ident::#generics;
+                                _ = ::windows_core::imp::Box::from_raw(self_);
+                            }
+                        },
+                        query_interface: |
+                            this: *const ::core::ffi::c_void,
+                            iid: *const ::windows_core::GUID,
+                            interface: *mut *mut ::core::ffi::c_void,
+                        | -> ::windows_core::HRESULT {
+                            unsafe {
+                                let self_ = &*(this as *mut #impl_ident::#generics);
+                                ::windows_core::IUnknownImpl::query_interface_this(self_, iid, interface)
+                            }
+                        }
                     },
                     #vtbl_initializers
                     this: self,
@@ -522,7 +560,7 @@ pub(crate) fn gen_into_outer(inputs: &ImplementInputs) -> syn::TraitItemFn {
 }
 
 /// Generates `From`-based conversions
-pub(crate) fn gen_conversions(inputs: &ImplementInputs) -> Vec<syn::Item> {
+fn gen_conversions(inputs: &ImplementInputs) -> Vec<syn::Item> {
     let mut items = Vec::new();
 
     let original_ident = &inputs.original_type.ident;
@@ -570,7 +608,7 @@ pub(crate) fn gen_conversions(inputs: &ImplementInputs) -> Vec<syn::Item> {
 }
 
 /// Generates the `ComObjectInterface` implementation for each interface chain
-pub(crate) fn gen_impl_com_object_interfaces(inputs: &ImplementInputs) -> Vec<syn::Item> {
+fn gen_impl_com_object_interfaces(inputs: &ImplementInputs) -> Vec<syn::Item> {
     let mut items = Vec::new();
 
     let generics = &inputs.generics;
@@ -582,7 +620,8 @@ pub(crate) fn gen_impl_com_object_interfaces(inputs: &ImplementInputs) -> Vec<sy
             #[inline(always)]
             fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IUnknown> {
                 unsafe {
-                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl = self.identity_interface();
+                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl =
+                        ::windows_core::IUnknownImpl::identity_interface(self);
                     ::core::mem::transmute(interface_ptr)
                 }
             }
@@ -594,7 +633,8 @@ pub(crate) fn gen_impl_com_object_interfaces(inputs: &ImplementInputs) -> Vec<sy
             #[inline(always)]
             fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IInspectable> {
                 unsafe {
-                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl = self.identity_interface();
+                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl =
+                        ::windows_core::IUnknownImpl::identity_interface(self);
                     ::core::mem::transmute(interface_ptr)
                 }
             }
@@ -620,10 +660,7 @@ pub(crate) fn gen_impl_com_object_interfaces(inputs: &ImplementInputs) -> Vec<sy
     items
 }
 
-pub(crate) fn gen_impl_as_impl(
-    inputs: &ImplementInputs,
-    interface_chain: &InterfaceChain,
-) -> syn::Item {
+fn gen_impl_as_impl(inputs: &ImplementInputs, interface_chain: &InterfaceChain) -> syn::Item {
     let generics = &inputs.generics;
     let constraints = &inputs.constraints;
     let interface_ident = interface_chain.implement.to_ident();

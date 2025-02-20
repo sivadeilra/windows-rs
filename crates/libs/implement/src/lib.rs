@@ -60,10 +60,18 @@ struct ImplementInputs {
     /// The list of generic parameters for this `Foo_Impl` type, including `<` and `>`.
     /// If there are no generics, this contains `<>`.
     generics: proc_macro2::TokenStream,
+
+    is_generic: bool,
 }
 
 struct InterfaceChain {
+    /// The name of the field for the vtable chain, e.g. `interface4_ifoo`.
     field_ident: syn::Ident,
+
+    /// The name of the associated constant item for the vtable chain's initializer,
+    /// e.g. `INTERFACE4_IFOO_VTABLE`.
+    vtable_const_ident: syn::Ident,
+
     implement: ImplementType,
 }
 
@@ -140,11 +148,14 @@ fn implement_core(
         where_clause.predicates.to_tokens(&mut constraints);
     }
 
+    let is_generic;
     let generics = if original_type.generics.lt_token.is_some() {
         let mut params = quote! {};
         original_type.generics.params.to_tokens(&mut params);
+        is_generic = true;
         quote! { <#params> }
     } else {
+        is_generic = false;
         quote! { <> }
     };
 
@@ -158,6 +169,7 @@ fn implement_core(
         original_type,
         constraints,
         generics,
+        is_generic,
         impl_ident,
     };
     // let impl_ident = &inputs.impl_ident;
@@ -399,9 +411,15 @@ fn convert_implements_to_interface_chains(implements: Vec<ImplementType>) -> Vec
         }
         let field_ident = syn::Ident::new(&ident_string, implement.span);
 
+        let mut vtable_const_string = ident_string.clone();
+        vtable_const_string.make_ascii_uppercase();
+        vtable_const_string.insert_str(0, "VTABLE_");
+        let vtable_const_ident = syn::Ident::new(&vtable_const_string, implement.span);
+
         chains.push(InterfaceChain {
             implement,
             field_ident,
+            vtable_const_ident,
         });
     }
 

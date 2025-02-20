@@ -80,3 +80,24 @@ fn derived() {
         }
     });
 }
+
+#[test]
+fn generic_no_lifetime() {
+    let _out = implement(quote!(IAsyncOperationWithProgress<T, P>, IAsyncInfo), quote! {
+        struct OperationWithProgress<T, P>(SyncState<IAsyncOperationWithProgress<T, P>>)
+        where
+            T: RuntimeType + 'static,
+            P: RuntimeType + 'static;
+
+    });
+}
+
+#[test]
+fn generic_with_lifetime() {
+    let _out = implement(quote!(), quote! {
+        struct Foo<'a> {
+            x: &'a [u8],
+        }
+
+    });
+}
