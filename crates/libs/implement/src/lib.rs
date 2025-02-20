@@ -169,6 +169,7 @@ fn implement_core(
         let interface_ident = interface_chain.implement.to_ident();
         let chain_field = &interface_chain.field_ident;
         let offset = proc_macro2::Literal::usize_unsuffixed(enumerate);
+        _ = offset;
 
         quote! {
             // TODO: make conditional on non-aggregate
@@ -197,11 +198,14 @@ fn implement_core(
                 #[inline(always)]
                 unsafe fn as_impl_ptr(&self) -> ::core::ptr::NonNull<#original_ident::#generics> {
                     // TODO: This is super sus
+                    todo!()
+                    /*
                     let this = ::windows_core::Interface::as_raw(self);
                     // Subtract away the vtable offset plus 1, for the `identity` field, to get
                     // to the impl struct which contains that original implementation type.
                     let this = (this as *mut *mut ::core::ffi::c_void).sub(1 + #offset) as *mut #impl_ident::#generics;
                     ::core::ptr::NonNull::new_unchecked(::core::ptr::addr_of!((*this).this) as *const #original_ident::#generics as *mut #original_ident::#generics)
+                    */
                 }
             }
         }
@@ -297,7 +301,7 @@ fn implement_core(
             #[inline(always)]
             fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IUnknown> {
                 unsafe {
-                    let interface_ptr = self.identity_interface();
+                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl = self.identity_interface();
                     ::core::mem::transmute(interface_ptr)
                 }
             }
@@ -307,7 +311,7 @@ fn implement_core(
             #[inline(always)]
             fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IInspectable> {
                 unsafe {
-                    let interface_ptr = self.identity_interface();
+                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl = self.identity_interface();
                     ::core::mem::transmute(interface_ptr)
                 }
             }
@@ -319,6 +323,8 @@ fn implement_core(
             #[inline(always)]
             unsafe fn as_impl_ptr(&self) -> ::core::ptr::NonNull<#original_ident::#generics> {
                 // TODO: This is super sus
+                todo!()
+                /*
                 unsafe {
                     let this = ::windows_core::Interface::as_raw(self);
                     // Subtract away the vtable offset plus 1, for the `identity` field, to get
@@ -326,6 +332,7 @@ fn implement_core(
                     let this = (this as *mut *mut ::core::ffi::c_void).sub(1) as *mut #impl_ident::#generics;
                     ::core::ptr::NonNull::new_unchecked(::core::ptr::addr_of!((*this).this) as *const #original_ident::#generics as *mut #original_ident::#generics)
                 }
+                */
             }
         }
 

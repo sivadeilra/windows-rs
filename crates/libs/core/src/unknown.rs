@@ -93,7 +93,7 @@ pub trait IUnknownImpl {
 
     /// Reference to the identity interface of this COM object. For aggregated objects, this
     /// points to the identity defined on the root (non-aggregated) object.
-    fn identity_interface(&self) -> &IInspectable_Vtbl;
+    fn identity_interface(&self) -> &&'static IInspectable_Vtbl;
 
     /// The classic `QueryInterface` method from COM.
     ///
@@ -221,7 +221,7 @@ impl IUnknown_Vtbl {
             interface: *mut *mut c_void,
         ) -> HRESULT {
             unsafe {
-                let impl_ptr = this.offset(OFFSET) as *mut T;
+                let impl_ptr = (this as *mut *mut c_void).offset(OFFSET) as *mut T;
                 (*impl_ptr).query_interface(iid, interface)
             }
         }
@@ -230,7 +230,7 @@ impl IUnknown_Vtbl {
             this: *mut c_void,
         ) -> u32 {
             unsafe {
-                let impl_ptr = this.offset(OFFSET) as *mut T;
+                let impl_ptr = (this as *mut *mut c_void).offset(OFFSET) as *mut T;
                 (*impl_ptr).add_ref()
             }
         }
@@ -239,7 +239,7 @@ impl IUnknown_Vtbl {
             this: *mut c_void,
         ) -> u32 {
             unsafe {
-                let impl_ptr = this.offset(OFFSET) as *mut T;
+                let impl_ptr = (this as *mut *mut c_void).offset(OFFSET) as *mut T;
                 T::release_ref(impl_ptr)
             }
         }

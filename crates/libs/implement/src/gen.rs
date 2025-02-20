@@ -80,13 +80,13 @@ pub(crate) fn gen_iunknown_impl(inputs: &ImplementInputs) -> syn::ItemImpl {
     let identity_interface_fn: syn::ImplItemFn = if let Some(ref base) = inputs.base_class_info {
         let base_field = &base.field_ident;
         parse_quote! {
-            fn identity_interface(&self) -> &::windows_core::IInspectable_Vtbl {
+            fn identity_interface(&self) -> &&'static ::windows_core::IInspectable_Vtbl {
                 self.#base_field.identity_interface()
             }
         }
     } else {
         parse_quote! {
-            fn identity_interface(&self) -> &::windows_core::IInspectable_Vtbl {
+            fn identity_interface(&self) -> &&'static ::windows_core::IInspectable_Vtbl {
                 &self.identity
             }
         }
