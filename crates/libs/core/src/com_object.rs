@@ -20,7 +20,13 @@ use core::ptr::NonNull;
 pub trait ComObjectInner: Sized {
     /// The generated `<foo>_Impl` type (aka the "boxed" type or "outer" type).
     type Outer: IUnknownImpl<Impl = Self>;
+}
 
+/// Describes type that can be placed into a `ComObject`.
+///
+/// This trait is defined by types marked with `#[implement]`, unless those types are "aggregated"
+/// types (subclasses / derived classes).  Aggregated class implement `AggregatedIntoComObject`.
+pub trait IntoComObject: Sized + ComObjectInner {
     /// Moves an instance of this type into a new ComObject box and returns it.
     ///
     /// # Safety
@@ -40,6 +46,16 @@ pub trait ComObjectInner: Sized {
     /// This ensures that our requirement -- that safe Rust code never own a `<foo>_Impl` value
     /// directly -- is met.
     fn into_object(self) -> ComObject<Self>;
+}
+
+/// Describes a type that can be placed into a `ComObject`, where the type aggregates over
+/// another type.
+pub trait IntoAggregatedComObject: Sized + ComObjectInner {
+    /// The base type
+    type Base: IUnknownImpl;
+
+    /// Moves an instance of this type into a new `ComObject` box and returns it.
+    fn into_object(self, base: Self::Base) -> ComObject<Self>;
 }
 
 /// Describes the COM interfaces implemented by a specific COM object.
@@ -75,37 +91,6 @@ pub struct ComObject<T: ComObjectInner> {
     ptr: NonNull<T::Outer>,
 }
 
-/// This structure describes the layout of the memory allocation that is managed by ComObject.
-/// The `T` type parameter is the "outer" object for a user data type.
-///
-/// User code should never be able to get access to the contents of this struct.
-#[repr(C)]
-pub struct ComObjectLayout<T: IUnknownImpl> {
-    /// Vtable for this COM object
-    pub vtable: &'static ComObjectVtbl,
-
-    // // TODO: make this conditional on aggregation (present only when _not_ aggregated)
-    /// Reference count
-    pub count: ::windows_core::imp::WeakRefCount,
-
-    /// The app data stored within the COM object. This is the "outer" version of the value.
-    ///
-    /// This is Foo_Impl of some kind. In most cases, it's a single ordinary Foo_Impl.
-    /// For aggregated
-    pub value: T,
-}
-
-/// This structure describes the layout of the memory allocation that is managed by ComObject
-/// for an aggregated type. An aggregated type is one that has a base class.
-#[repr(C)]
-pub struct ComObjectAggregatedLayout<Base, Derived: IUnknownImpl> {
-    /// The base type.
-    pub base: Base,
-
-    /// The derived type. This is an "outer" value.
-    pub derived: Derived,
-}
-
 /// This is a hand-rolled vtable for `ComObjectLayout<T>`.
 pub struct ComObjectVtbl {
     /// QueryInterface impl
@@ -128,8 +113,19 @@ pub struct ComObjectConstructorBrand {
 
 impl<T: ComObjectInner> ComObject<T> {
     /// Allocates a heap cell (box) and moves `value` into it. Returns a counted pointer to `value`.
-    pub fn new(value: T) -> Self {
+    pub fn new(value: T) -> Self
+    where
+        T: IntoComObject,
+    {
         T::into_object(value)
+    }
+
+    /// Allocates a heap cell (box) and moves `value` into it. Returns a counted pointer to `value`.
+    pub fn new_aggregated(value: T, base: T::Base) -> Self
+    where
+        T: IntoAggregatedComObject,
+    {
+        T::into_object(value, base)
     }
 
     /// Creates a new `ComObject` that points to an existing boxed instance.
@@ -272,7 +268,7 @@ impl<T: ComObjectInner> ComObject<T> {
     }
 }
 
-impl<T: ComObjectInner + Default> Default for ComObject<T> {
+impl<T: ComObjectInner + Default + IntoComObject> Default for ComObject<T> {
     fn default() -> Self {
         Self::new(T::default())
     }
@@ -320,7 +316,7 @@ impl<T: ComObjectInner> Deref for ComObject<T> {
 // access to the contents of the object. Use get_mut() for dynamically-checked
 // exclusive access.
 
-impl<T: ComObjectInner> From<T> for ComObject<T> {
+impl<T: ComObjectInner + IntoComObject> From<T> for ComObject<T> {
     fn from(value: T) -> ComObject<T> {
         ComObject::new(value)
     }

@@ -34,7 +34,7 @@ impl IFoo_Impl for Base_Impl {
 #[implement(IBar)]
 struct Derived {
     #[base]
-    base: Base,
+    base: Base_Impl,
 
     q: String,
 }
@@ -57,10 +57,12 @@ fn make_base() {
 
 #[test]
 fn make_derived() {
-    let derived = ComObject::new(Derived {
-        base: Base { n: 50 },
-        q: "hello!".to_string(),
-    });
+    let derived = ComObject::new_aggregated(
+        Derived {
+            q: "hello!".to_string(),
+        },
+        Base { n: 50 }.into_outer(),
+    );
     // let derived_ifoo: IFoo = derived.to_interface();
     let derived_ibar: IBar = derived.to_interface();
     unsafe {

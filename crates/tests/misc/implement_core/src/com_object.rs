@@ -5,7 +5,7 @@ use std::borrow::Borrow;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::Arc;
 use windows_core::{
-    implement, interface, ComObject, IUnknown, IUnknownImpl, IUnknown_Vtbl, Interface, InterfaceRef,
+    implement, interface, ComObject, IUnknown, IUnknownImpl, IUnknown_Vtbl, Interface,
 };
 
 #[interface("818f2fd1-d479-4398-b286-a93c4c7904d1")]
@@ -47,8 +47,7 @@ impl IFoo_Impl for MyApp_Impl {
     }
 
     unsafe fn get_self_as_bar(&self) -> IBar {
-        let outer = MyApp_Impl::from_inner_ref(self);
-        outer.to_interface()
+        self.to_interface()
     }
 
     unsafe fn common(&self) -> u32 {
@@ -358,14 +357,6 @@ fn hashable() {
 }
 
 #[test]
-fn from_inner_ref() {
-    let app = MyApp::new(42);
-    let ifoo: InterfaceRef<IFoo> = app.as_interface();
-    let ibar: IBar = unsafe { ifoo.get_self_as_bar() };
-    unsafe { ibar.say_hello() };
-}
-
-#[test]
 fn to_object() {
     let app = MyApp::new(42);
     let tombstone = app.tombstone.clone();
@@ -439,14 +430,14 @@ fn iunknown_identity() {
     let app = MyApp::new(0);
 
     println!("identity = {:?}", &app.identity as *const _);
-    println!("vtables.0 = {:?}", &app.vtables.0 as *const _);
-    println!("vtables.1 = {:?}", &app.vtables.1 as *const _);
-    println!("vtables.2 = {:?}", &app.vtables.2 as *const _);
+    println!("vtables.0 = {:?}", &app.interface0_ifoo as *const _);
+    println!("vtables.1 = {:?}", &app.interface1_ibar as *const _);
+    println!("vtables.2 = {:?}", &app.interface2_ibar2 as *const _);
 
     let raw_identity: *mut c_void = &app.identity as *const _ as *mut c_void;
-    let raw_foo: *mut c_void = &app.vtables.0 as *const _ as *mut c_void;
-    let raw_bar: *mut c_void = &app.vtables.1 as *const _ as *mut c_void;
-    let raw_bar2: *mut c_void = &app.vtables.2 as *const _ as *mut c_void;
+    let raw_foo: *mut c_void = &app.interface0_ifoo as *const _ as *mut c_void;
+    let raw_bar: *mut c_void = &app.interface1_ibar as *const _ as *mut c_void;
+    let raw_bar2: *mut c_void = &app.interface2_ibar2 as *const _ as *mut c_void;
 
     // iunknown is from the identity vtable slot. It is the canonical IUnknown pointer.
     let iunknown: IUnknown = app.to_interface();

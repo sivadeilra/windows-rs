@@ -4,10 +4,10 @@
 //!
 //! Learn more about Rust for Windows here: <https://github.com/microsoft/windows-rs>
 
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 use quote::{quote, ToTokens};
+use syn::parse_quote;
+
+mod gen;
 
 #[cfg(test)]
 mod tests;
@@ -44,55 +44,95 @@ pub fn implement(
     implement_core(attributes.into(), type_tokens.into()).into()
 }
 
+struct ImplementInputs {
+    interface_chains: Vec<InterfaceChain>,
+    base_class_info: Option<BaseClassInfo>,
+    original_type: syn::ItemStruct,
+
+    trust_level: usize,
+
+    /// The identifier of the `Foo_Impl` type.
+    impl_ident: syn::Ident,
+
+    /// The list of constraints needed for this `Foo_Impl` type.
+    constraints: proc_macro2::TokenStream,
+
+    /// The list of generic parameters for this `Foo_Impl` type, including `<` and `>`.
+    /// If there are no generics, this contains `<>`.
+    generics: proc_macro2::TokenStream,
+}
+
+struct InterfaceChain {
+    field_ident: syn::Ident,
+    implement: ImplementType,
+}
+
+struct BaseClassInfo {
+    field_ident: syn::Ident,
+    /// A type specifier for the `Base_Impl` type.
+    field_ty: syn::Type,
+}
+
+/// Check the user type definition for a field marked with `#[base]`. If we find one, then
+/// _remove_ the attribute from the field and return it.
+///
+/// If a field is marked with `#[base]`, then the type of that field must specify an "outer"
+/// implementation type, e.g. `Base_Impl`, _not_ a `Base` type. This function cannot verify that;
+/// instead, we generate code and rely on the compiler to verify our requirements.
+fn parse_base_class_info(
+    original_type: &mut syn::ItemStruct,
+) -> Result<Option<BaseClassInfo>, syn::Error> {
+    // Declaring a base class requires using named field syntax.
+    // We ignore struct definitions that don't use named field syntax (i.e. types and unit).
+    let syn::Fields::Named(ref mut named) = original_type.fields else {
+        return Ok(None);
+    };
+
+    let mut base_class_info: Option<BaseClassInfo> = None;
+
+    let mut new_fields = syn::punctuated::Punctuated::new();
+
+    for field_pair in core::mem::take(&mut named.named).into_pairs() {
+        let (mut field, field_punct) = field_pair.into_tuple();
+
+        let field_ident: syn::Ident = field.ident.clone().unwrap();
+        if let Some(base_attr_index) = field.attrs.iter().position(|a| a.path().is_ident("base")) {
+            if base_class_info.is_some() {
+                return Err(syn::Error::new(
+                    field_ident.span(),
+                    "cannot declare more than one field with #[base]",
+                ));
+            } else {
+                // Remove the attribute, so that it is not emitted later.
+                field.attrs.remove(base_attr_index);
+                base_class_info = Some(BaseClassInfo {
+                    field_ident,
+                    field_ty: field.ty,
+                });
+            }
+        } else {
+            // Normal field.
+            new_fields.push_value(field);
+            if let Some(p) = field_punct {
+                new_fields.push_punct(p);
+            }
+        }
+    }
+
+    named.named = new_fields;
+    Ok(base_class_info)
+}
+
 fn implement_core(
     attributes: proc_macro2::TokenStream,
     type_tokens: proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let attributes = syn::parse2::<ImplementAttributes>(attributes).unwrap();
-    let interfaces_len = proc_macro2::Literal::usize_unsuffixed(attributes.implement.len());
-
-    let identity_type = if let Some(first) = attributes.implement.first() {
-        first.to_ident()
-    } else {
-        quote! { ::windows_core::IInspectable }
-    };
+    // let interfaces_len = proc_macro2::Literal::usize_unsuffixed(attributes.implement.len());
 
     let mut original_type = syn::parse2::<syn::ItemStruct>(type_tokens).unwrap();
+    let base_class_info = parse_base_class_info(&mut original_type).unwrap();
 
-    // Check the user type definition for a field marked with #[base]. If we find one, then
-    // _remove_ the attribute from the field.
-    let mut base_class_info: Option<BaseClassInfo> = None;
-    match original_type.fields {
-        syn::Fields::Named(ref mut named) => {
-            for field in named.named.iter_mut() {
-                println!("checking field: {:?}", field.ident);
-                let field_ident: syn::Ident = field.ident.clone().unwrap();
-                if let Some(base_attr_index) =
-                    field.attrs.iter().position(|a| a.path().is_ident("base"))
-                {
-                    println!("found #[base] on '{:?}'", field.ident);
-                    if base_class_info.is_some() {
-                        return syn::Error::new(
-                            field_ident.span(),
-                            "cannot declare more than one field with #[base]",
-                        )
-                        .into_compile_error()
-                        .into();
-                    } else {
-                        base_class_info = Some(BaseClassInfo {
-                            field_ident,
-                            field_ty: field.ty.clone(),
-                        });
-                        // Remove the attribute, so that it is not emitted later.
-                        field.attrs.remove(base_attr_index);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-
-    let vis = original_type.vis.clone();
     let original_ident = &original_type.ident.clone();
     let mut constraints = quote! {};
 
@@ -111,119 +151,28 @@ fn implement_core(
     // The identifier of the Foo_Impl struct for this type.
     let impl_ident = quote::format_ident!("{}_Impl", original_ident);
 
-    // The identifier of the generated Foo_Interfaces struct for this type.
-    // let interfaces_ident = quote::format_ident!("{}_Interfaces", original_ident);
-
-    // The list of vtable identifiers for the top-level interface changes for this object.
-    /*
-    let vtbl_idents = attributes
-        .implement
-        .iter()
-        .map(|implement| implement.to_vtbl_ident());
-    let vtbl_idents2 = vtbl_idents.clone();
-    */
-
-    // Make the "const VTABLE_1: ..." items.
-    let mut const_vtables_list = quote!();
-    let mut vtables_field_decls = quote!();
-    let mut vtbl_initializers = quote!();
-
-    vtables_field_decls.extend(quote! {
-        identity: &'static ::windows_core::IInspectable_Vtbl,
-    });
-
-    const_vtables_list.extend(quote! {
-        const IDENTITY: ::windows_core::IInspectable_Vtbl = ::windows_core::IInspectable_Vtbl::new::<Self, #identity_type, 0>();
-    });
-
-    vtbl_initializers.extend(quote! {
-        identity: &::windows_core::IInspectable_Vtbl::new::<Self, #identity_type, 0>(),
-    });
-
-    for (i, implement) in attributes.implement.iter().enumerate() {
-        let interface_index = i + 1; // +1 for the Identity interface chain
-        let vtbl_ident = implement.to_vtbl_ident();
-        let vtbl_const_ident = syn::Ident::new(&format!("VTABLE_{interface_index}"), implement.span);
-        let vtbl_offset: isize = -(interface_index as isize);
-
-        const_vtables_list.extend(quote! {
-            const #vtbl_const_ident: #vtbl_ident = #vtbl_ident::new::<Self, #vtbl_offset>();
-        });
-
-        let vtbl_field_ident = syn::Ident::new(&format!("vtable_{interface_index}"), implement.span);
-
-        vtables_field_decls.extend(quote! {
-            #vtbl_field_ident: &'static #vtbl_ident,
-        });
-
-        vtbl_initializers.extend(quote! {
-            #vtbl_field_ident: #vtbl_ident::new::<Self, #vtbl_offset>(),
-        });
-    }
-
-    // A list of "new()" expressions for the vtables of the type.
-    /*
-    let vtable_news = attributes
-        .implement
-        .iter()
-        .enumerate()
-        .map(|(enumerate, implement)| {
-            let vtbl_ident = implement.to_vtbl_ident();
-            let offset = proc_macro2::Literal::isize_unsuffixed(-1 - enumerate as isize);
-            quote! { #vtbl_ident::new::<Self, #offset>() }
-        });
-        */
-
-    let offset = attributes
-        .implement
-        .iter()
-        .enumerate()
-        .map(|(offset, _)| proc_macro2::Literal::usize_unsuffixed(offset));
-
-    let queries = attributes
-        .implement
-        .iter()
-        .enumerate()
-        .map(|(count, implement)| {
-            let vtbl_ident = implement.to_vtbl_ident();
-            let offset = proc_macro2::Literal::usize_unsuffixed(count);
-            quote! {
-                else if #vtbl_ident::matches(iid) {
-                    &self.vtables.#offset as *const _ as *mut _
-                }
-            }
-        });
-
-    // Dynamic casting requires that the object not contain non-static lifetimes.
-    let enable_dyn_casting = original_type.generics.lifetimes().count() == 0;
-    let dynamic_cast_query = if enable_dyn_casting {
-        quote! {
-            else if *iid == ::windows_core::DYNAMIC_CAST_IID {
-                // DYNAMIC_CAST_IID is special. We _do not_ increase the reference count for this pseudo-interface.
-                // Also, instead of returning an interface pointer, we simply write the `&dyn Any` directly to the
-                // 'interface' pointer. Since the size of `&dyn Any` is 2 pointers, not one, the caller must be
-                // prepared for this. This is not a normal QueryInterface call.
-                //
-                // See the `Interface::cast_to_any` method, which is the only caller that should use DYNAMIC_CAST_ID.
-                (interface as *mut *const dyn core::any::Any).write(self as &dyn ::core::any::Any as *const dyn ::core::any::Any);
-                return ::windows_core::HRESULT(0);
-            }
-        }
-    } else {
-        quote!()
+    let inputs = ImplementInputs {
+        interface_chains: convert_implements_to_interface_chains(attributes.implement),
+        trust_level: attributes.trust_level,
+        base_class_info,
+        original_type,
+        constraints,
+        generics,
+        impl_ident,
     };
+    // let impl_ident = &inputs.impl_ident;
 
-    // The distance from the beginning of the generated type to the 'this' field, in units of pointers (not bytes).
-    let offset_of_this_in_pointers = 1 + attributes.implement.len();
-    let offset_of_this_in_pointers_token =
-        proc_macro2::Literal::usize_unsuffixed(offset_of_this_in_pointers);
-
-    let trust_level = proc_macro2::Literal::usize_unsuffixed(attributes.trust_level);
-
-    let conversions = attributes.implement.iter().enumerate().map(|(enumerate, implement)| {
-        let interface_ident = implement.to_ident();
+    let generics = &inputs.generics;
+    let impl_ident = &inputs.impl_ident;
+    let constraints = &inputs.constraints;
+    let conversions = inputs.interface_chains.iter().enumerate().map(|(enumerate, interface_chain)| {
+        let interface_ident = interface_chain.implement.to_ident();
+        let chain_field = &interface_chain.field_ident;
         let offset = proc_macro2::Literal::usize_unsuffixed(enumerate);
+
         quote! {
+            // TODO: make conditional on non-aggregate
+            /*
             impl #generics ::core::convert::From<#original_ident::#generics> for #interface_ident where #constraints {
                 #[inline(always)]
                 fn from(this: #original_ident::#generics) -> Self {
@@ -231,13 +180,13 @@ fn implement_core(
                     com_object.into_interface()
                 }
             }
+            */
 
             impl #generics ::windows_core::ComObjectInterface<#interface_ident> for #impl_ident::#generics where #constraints {
                 #[inline(always)]
                 fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, #interface_ident> {
                     unsafe {
-                        let interface_ptr = &self.vtables.#offset;
-                        ::core::mem::transmute(interface_ptr)
+                        ::core::mem::transmute(&self.#chain_field)
                     }
                 }
             }
@@ -257,21 +206,35 @@ fn implement_core(
         }
     });
 
-    let tokens = quote! {
-        #[repr(C)]
-        #[allow(non_camel_case_types)]
-        #vis struct #impl_ident #generics where #constraints {
-            #vtables_field_decls
-            this: #original_ident::#generics,
-            count: ::windows_core::imp::WeakRefCount,
-        }
+    // Contains tokens that will be added to the impl block for the generated Foo_Impl type.
+    let mut impl_items = quote!();
 
-        impl #generics #impl_ident::#generics where #constraints {
-            // TODO: maybe remove const_vtables_list entirely
-            // #const_vtables_list
-        }
+    if let Some(ref base_class_info) = inputs.base_class_info {
+        // Emit a method which allows the app to go from &Derived_Impl to &Base_Impl.
+        let base_field_ident = &base_class_info.field_ident;
+        let base_ty = &base_class_info.field_ty;
+        impl_items.extend(quote! {
+            /// Provides access to the base object.
+            // TODO: Handle generics for the base type.
+            pub fn base(&self) -> &#base_ty {
+                &self.#base_field_ident
+            }
+            // Do NOT provide a method for returning &mut #base_ty. Doing so would allow for
+            // breaking memory safety, because it would allow any caller to swap instances of
+            // the Foo_Impl. This may be fixable by moving the reference count field out of the
+            // _Impl types.
+            //
+            // It might be safe to return Pin<&mut Foo_Impl>.
+            // It would be safe to directly return &mut Foo (not &mut Foo_Impl!)
+        });
+    }
 
-        impl #generics #original_ident::#generics where #constraints {
+
+    let mut original_impl_items = quote!();
+    original_impl_items.extend(gen::gen_into_outer(&inputs).into_token_stream());
+
+    if inputs.base_class_info.is_none() {
+        original_impl_items.extend(quote! {
             /// This converts a partially-constructed COM object (in the sense that it contains
             /// application state but does not yet have vtable and reference count constructed)
             /// into a `StaticComObject`. This allows the COM object to be stored in static
@@ -279,147 +242,20 @@ fn implement_core(
             pub const fn into_static(self) -> ::windows_core::StaticComObject<Self> {
                 ::windows_core::StaticComObject::from_outer(self.into_outer())
             }
+        });
+    }
 
-            // This constructs an "outer" object. This should only be used by the implementation
-            // of the outer object, never by application code.
-            //
-            // The callers of this function (`into_static` and `into_object`) are both responsible
-            // for maintaining one of our invariants: Application code never has an owned instance
-            // of the outer (implementation) type. into_static() maintains this invariant by
-            // returning a wrapped StaticComObject value, which owns its contents but never gives
-            // application code a way to mutably access its contents. This prevents the refcount
-            // shearing problem.
-            //
-            // TODO: Make it impossible for app code to call this function, by placing it in a
-            // module and marking this as private to the module.
-            #[inline(always)]
-            const fn into_outer(self) -> #impl_ident::#generics {
-                #impl_ident::#generics {
-                    #vtbl_initializers
-                    this: self,
-                    count: ::windows_core::imp::WeakRefCount::new(),
-                }
-            }
+    let mut tokens = quote! {
+        impl #generics #impl_ident::#generics where #constraints {
+            #impl_items
         }
 
-        impl #generics ::windows_core::ComObjectInner for #original_ident::#generics where #constraints {
-            type Outer = #impl_ident::#generics;
+        impl #generics #original_ident::#generics where #constraints {
 
-            // IMPORTANT! This function handles assembling the "boxed" type of a COM object.
-            // It immediately moves the box into a heap allocation (box) and returns only a ComObject
-            // reference that points to it. We intentionally _do not_ expose any owned instances of
-            // Foo_Impl to safe Rust code, because doing so would allow unsound behavior in safe Rust
-            // code, due to the adjustments of the reference count that Foo_Impl permits.
-            //
-            // This is why this function returns ComObject<Self> instead of returning #impl_ident.
-
-            fn into_object(self) -> ::windows_core::ComObject<Self> {
-                let boxed = ::windows_core::imp::Box::<#impl_ident::#generics>::new(self.into_outer());
-                unsafe {
-                    let ptr = ::windows_core::imp::Box::into_raw(boxed);
-                    ::windows_core::ComObject::from_raw(
-                        ::core::ptr::NonNull::new_unchecked(ptr)
-                    )
-                }
-            }
+            #original_impl_items
         }
 
-        impl #generics ::windows_core::IUnknownImpl for #impl_ident::#generics where #constraints {
-            type Impl = #original_ident::#generics;
-
-            #[inline(always)]
-            fn get_impl(&self) -> &Self::Impl {
-                &self.this
-            }
-
-            #[inline(always)]
-            fn get_impl_mut(&mut self) -> &mut Self::Impl {
-                &mut self.this
-            }
-
-            #[inline(always)]
-            fn is_reference_count_one(&self) -> bool {
-                self.count.is_one()
-            }
-
-            #[inline(always)]
-            fn into_inner(self) -> Self::Impl {
-                self.this
-            }
-
-            unsafe fn QueryInterface(&self, iid: *const ::windows_core::GUID, interface: *mut *mut ::core::ffi::c_void) -> ::windows_core::HRESULT {
-                if iid.is_null() || interface.is_null() {
-                    return ::windows_core::imp::E_POINTER;
-                }
-
-                let iid = &*iid;
-
-                let interface_ptr: *mut ::core::ffi::c_void = if iid == &<::windows_core::IUnknown as ::windows_core::Interface>::IID
-                    || iid == &<::windows_core::IInspectable as ::windows_core::Interface>::IID
-                    || iid == &<::windows_core::imp::IAgileObject as ::windows_core::Interface>::IID {
-                        &self.identity as *const _ as *mut _
-                }
-                #(#queries)*
-                #dynamic_cast_query
-                else {
-                    ::core::ptr::null_mut()
-                };
-
-                if !interface_ptr.is_null() {
-                    *interface = interface_ptr;
-                    self.count.add_ref();
-                    return ::windows_core::HRESULT(0);
-                }
-
-                let interface_ptr = self.count.query(iid, &self.identity as *const _ as *mut _);
-                *interface = interface_ptr;
-
-                if interface_ptr.is_null() {
-                    ::windows_core::imp::E_NOINTERFACE
-                } else {
-                    ::windows_core::HRESULT(0)
-                }
-            }
-
-            #[inline(always)]
-            fn AddRef(&self) -> u32 {
-                self.count.add_ref()
-            }
-
-            #[inline(always)]
-            unsafe fn Release(self_: *mut Self) -> u32 {
-                let remaining = (*self_).count.release();
-                if remaining == 0 {
-                    _ = ::windows_core::imp::Box::from_raw(self_);
-                }
-                remaining
-            }
-
-            unsafe fn GetTrustLevel(&self, value: *mut i32) -> ::windows_core::HRESULT {
-                if value.is_null() {
-                    return ::windows_core::imp::E_POINTER;
-                }
-                *value = #trust_level;
-                ::windows_core::HRESULT(0)
-            }
-
-            unsafe fn from_inner_ref(inner: &Self::Impl) -> &Self {
-                &*((inner as *const Self::Impl as *const *const ::core::ffi::c_void)
-                    .sub(#offset_of_this_in_pointers_token) as *const Self)
-            }
-
-            fn to_object(&self) -> ::windows_core::ComObject<Self::Impl> {
-                self.count.add_ref();
-                unsafe {
-                    ::windows_core::ComObject::from_raw(
-                        ::core::ptr::NonNull::new_unchecked(self as *const Self as *mut Self)
-                    )
-                }
-            }
-
-            const INNER_OFFSET_IN_POINTERS: usize = #offset_of_this_in_pointers_token;
-        }
-
+        /*
         impl #generics #original_ident::#generics where #constraints {
             /// Try casting as the provided interface
             ///
@@ -431,11 +267,14 @@ fn implement_core(
             unsafe fn cast<I: ::windows_core::Interface>(&self) -> ::windows_core::Result<I> {
                 let boxed = (self as *const _ as *const *mut ::core::ffi::c_void).sub(1 + #interfaces_len) as *mut #impl_ident::#generics;
                 let mut result = ::core::ptr::null_mut();
-                _ = <#impl_ident::#generics as ::windows_core::IUnknownImpl>::QueryInterface(&*boxed, &I::IID, &mut result);
+                _ = <#impl_ident::#generics as ::windows_core::IUnknownImpl>::query_interface(&*boxed, &I::IID, &mut result);
                 ::windows_core::Type::from_abi(result)
             }
         }
+        */
 
+        // TODO: make conditional on non-aggregated
+        /*
         impl #generics ::core::convert::From<#original_ident::#generics> for ::windows_core::IUnknown where #constraints {
             #[inline(always)]
             fn from(this: #original_ident::#generics) -> Self {
@@ -451,12 +290,13 @@ fn implement_core(
                 com_object.into_interface()
             }
         }
+        */
 
         impl #generics ::windows_core::ComObjectInterface<::windows_core::IUnknown> for #impl_ident::#generics where #constraints {
             #[inline(always)]
             fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IUnknown> {
                 unsafe {
-                    let interface_ptr = &self.identity;
+                    let interface_ptr = self.identity_interface();
                     ::core::mem::transmute(interface_ptr)
                 }
             }
@@ -466,7 +306,7 @@ fn implement_core(
             #[inline(always)]
             fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IInspectable> {
                 unsafe {
-                    let interface_ptr = &self.identity;
+                    let interface_ptr = self.identity_interface();
                     ::core::mem::transmute(interface_ptr)
                 }
             }
@@ -477,11 +317,13 @@ fn implement_core(
             // is guaranteed to live at least as long as `self`.
             #[inline(always)]
             unsafe fn as_impl_ptr(&self) -> ::core::ptr::NonNull<#original_ident::#generics> {
-                let this = ::windows_core::Interface::as_raw(self);
-                // Subtract away the vtable offset plus 1, for the `identity` field, to get
-                // to the impl struct which contains that original implementation type.
-                let this = (this as *mut *mut ::core::ffi::c_void).sub(1) as *mut #impl_ident::#generics;
-                ::core::ptr::NonNull::new_unchecked(::core::ptr::addr_of!((*this).this) as *const #original_ident::#generics as *mut #original_ident::#generics)
+                unsafe {
+                    let this = ::windows_core::Interface::as_raw(self);
+                    // Subtract away the vtable offset plus 1, for the `identity` field, to get
+                    // to the impl struct which contains that original implementation type.
+                    let this = (this as *mut *mut ::core::ffi::c_void).sub(1) as *mut #impl_ident::#generics;
+                    ::core::ptr::NonNull::new_unchecked(::core::ptr::addr_of!((*this).this) as *const #original_ident::#generics as *mut #original_ident::#generics)
+                }
             }
         }
 
@@ -499,19 +341,27 @@ fn implement_core(
         #(#conversions)*
     };
 
+    tokens.extend(gen::gen_impl_struct(&inputs).into_token_stream());
+    tokens.extend(gen::gen_iunknown_impl(&inputs).into_token_stream());
+    tokens.extend(gen::gen_impl_com_object_inner(&inputs).into_token_stream());
+    tokens.extend(gen::gen_impl_into_com_object(&inputs).into_token_stream());
+
     let mut tokens: proc_macro2::TokenStream = tokens.into();
-    tokens.extend(proc_macro2::TokenStream::from(original_type.into_token_stream()));
+    tokens.extend(proc_macro2::TokenStream::from(
+        inputs.original_type.into_token_stream(),
+    ));
     tokens
 }
 
-#[allow(dead_code)]
-struct BaseClassInfo {
-    field_ident: syn::Ident,
-    field_ty: syn::Type,
+fn parse_verify<T: syn::parse::Parse>(t: proc_macro2::TokenStream) -> T {
+    match syn::parse2(t.clone()) {
+        Ok(x) => x,
+        Err(e) => {
+            panic!("Failed to parse token stream into expected AST: {e:?}\nTokens:\n{t}");
+        }
+    }
 }
 
-
-// #[derive(Default)]
 struct ImplementType {
     type_name: String,
     generics: Vec<ImplementType>,
@@ -712,4 +562,47 @@ impl syn::parse::Parse for UseTree2 {
             Err(lookahead.error())
         }
     }
+}
+
+fn convert_implements_to_interface_chains(implements: Vec<ImplementType>) -> Vec<InterfaceChain> {
+    let mut chains = Vec::with_capacity(implements.len());
+
+    for (i, implement) in implements.into_iter().enumerate() {
+        // Create an identifier for this interface chain.
+        // We only use this for naming fields; it is never visible to the developer.
+        // This helps with debugging.
+
+        let mut ident_string = format!("interface{i}");
+
+        let suffix = get_interface_ident_suffix(&implement.type_name);
+        if !suffix.is_empty() {
+            ident_string.push('_');
+            ident_string.push_str(&suffix);
+        }
+        let field_ident = syn::Ident::new(&ident_string, implement.span);
+
+        chains.push(InterfaceChain {
+            implement,
+            field_ident,
+        });
+    }
+
+    chains
+}
+
+fn get_interface_ident_suffix(type_name: &str) -> String {
+    let mut suffix = String::new();
+    for c in type_name.chars() {
+        let c = c.to_ascii_lowercase();
+
+        if suffix.len() >= 20 {
+            break;
+        }
+
+        if c.is_ascii_alphanumeric() {
+            suffix.push(c);
+        }
+    }
+
+    suffix
 }

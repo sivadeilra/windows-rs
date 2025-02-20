@@ -60,11 +60,21 @@ fn rustfmt(input: &str) -> String {
 }
 
 #[test]
-fn basic() {
+fn base() {
+    let _out = implement(quote!(IBase, IOtherBase), quote! {
+        struct Base {
+            zzz: u32,
+        }
+    });
+}
+
+
+#[test]
+fn derived() {
     let _out = implement(quote!(IFoo, IBar, IZap), quote! {
-        struct Foo {
+        struct Derived {
             #[base]
-            base: Bar,
+            base: Base_Impl,
 
             x: u32,
         }
