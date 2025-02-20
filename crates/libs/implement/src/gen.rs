@@ -37,7 +37,7 @@ pub(crate) fn gen_impl_struct(inputs: &ImplementInputs) -> syn::ItemStruct {
 
     if inputs.base_class_info.is_none() {
         impl_fields.extend(quote! {
-            count: ::windows_core::imp::WeakRefCount,
+            header: ::windows_core::ComObjectHeader,
         });
     }
 
@@ -61,21 +61,18 @@ pub(crate) fn gen_iunknown_impl(inputs: &ImplementInputs) -> syn::ItemImpl {
 
     let trust_level = proc_macro2::Literal::usize_unsuffixed(inputs.trust_level);
 
-    // If generating a derived class, then the AddRef implementation just defers to the base.
-    let get_count_fn: syn::ImplItemFn = if let Some(_) = inputs.base_class_info {
+    let header_fn: syn::ImplItemFn = if let Some(_) = inputs.base_class_info {
         parse_quote! {
             #[inline(always)]
-            unsafe fn count_field(&self) -> &::windows_core::imp::WeakRefCount {
-                unsafe {
-                    self.base().count_field()
-                }
+            fn header(&self) -> &::windows_core::ComObjectHeader {
+                self.base().header()
             }
         }
     } else {
         parse_quote! {
             #[inline(always)]
-            unsafe fn count_field(&self) -> &::windows_core::imp::WeakRefCount {
-                &self.count
+            fn header(&self) -> &::windows_core::ComObjectHeader {
+                &self.header
             }
         }
     };
@@ -116,18 +113,7 @@ pub(crate) fn gen_iunknown_impl(inputs: &ImplementInputs) -> syn::ItemImpl {
 
             #identity_interface_fn
             #query_interface_fn
-            #get_count_fn
-
-            #[inline(always)]
-            unsafe fn Release(self_: *mut Self) -> u32 {
-                unsafe {
-                    let remaining = ::windows_core::IUnknownImpl::count_field(&*self_).release();
-                    if remaining == 0 {
-                        _ = ::windows_core::imp::Box::from_raw(self_);
-                    }
-                    remaining
-                }
-            }
+            #header_fn
 
             unsafe fn GetTrustLevel(&self, value: *mut i32) -> ::windows_core::HRESULT {
                 unsafe {
@@ -220,7 +206,11 @@ fn gen_query_interface(inputs: &ImplementInputs) -> syn::ImplItemFn {
     };
 
     parse_quote! {
-        unsafe fn query_interface(&self, iid: *const ::windows_core::GUID, interface: *mut *mut ::core::ffi::c_void) -> ::windows_core::HRESULT {
+        unsafe fn query_interface_this(
+            &self,
+            iid: *const ::windows_core::GUID,
+            interface: *mut *mut ::core::ffi::c_void,
+        ) -> ::windows_core::HRESULT {
             #base_query
 
             if iid.is_null() || interface.is_null() {
@@ -413,10 +403,33 @@ pub(crate) fn gen_into_outer(inputs: &ImplementInputs) -> syn::TraitItemFn {
             // module and marking this as private to the module.
             #[inline(always)]
             const fn into_outer(self) -> #impl_ident::#generics {
+
+                unsafe fn destroy_this(this: *mut ::core::ffi::c_void) {
+                    unsafe {
+                        let self_ = this as *mut #impl_ident::#generics;
+                        _ = ::windows_core::imp::Box::from_raw(self_);
+                    }
+                }
+
+                unsafe fn query_interface_this(
+                    this: *const ::core::ffi::c_void,
+                    iid: *const ::windows_core::GUID,
+                    interface: *mut *mut ::core::ffi::c_void,
+                ) -> ::windows_core::HRESULT {
+                    unsafe {
+                        let self_ = &*(this as *mut #impl_ident::#generics);
+                        self_.query_interface_this(iid, interface)
+                    }
+                }
+
                 #impl_ident::#generics {
+                    header: ::windows_core::ComObjectHeader {
+                        count: ::windows_core::imp::WeakRefCount::new(),
+                        destructor: destroy_this,
+                        query_interface: query_interface_this,
+                    },
                     #vtbl_initializers
                     this: self,
-                    count: ::windows_core::imp::WeakRefCount::new(),
                 }
             }
         }

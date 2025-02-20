@@ -101,7 +101,14 @@ pub trait IUnknownImpl {
     ///
     /// This function is safe to call as long as the interface pointer is non-null and valid for writes
     /// of an interface pointer.
-    unsafe fn query_interface(&self, iid: *const GUID, interface: *mut *mut c_void) -> HRESULT;
+    unsafe fn query_interface(&self, iid: *const GUID, interface: *mut *mut c_void) -> HRESULT {
+        let header = self.header();
+        unsafe { (header.query_interface)(self as *const _ as *const _, iid, interface) }
+    }
+
+    /// the real implementation for this specific type
+    unsafe fn query_interface_this(&self, iid: *const GUID, interface: *mut *mut c_void)
+        -> HRESULT;
 
     /// Gets access to the internal reference count field.
     ///
@@ -113,14 +120,17 @@ pub trait IUnknownImpl {
     /// this function has an `unsafe` signature.
     ///
     /// All callers of this function must ensure that changes to the ref count are done safely.
-    unsafe fn count_field(&self) -> &WeakRefCount;
+    fn count_field(&self) -> &WeakRefCount {
+        &self.header().count
+    }
+
+    /// Gets a reference to the header of this COM object.
+    fn header(&self) -> &ComObjectHeader;
 
     /// Increments the reference count of the interface
     #[inline(always)]
-    unsafe fn AddRef(&self) -> u32 {
-        unsafe {
-            self.count_field().add_ref()
-        }
+    unsafe fn add_ref(&self) -> u32 {
+        unsafe { self.count_field().add_ref() }
     }
 
     /// Decrements the reference count causing the interface's memory to be freed when the count is 0
@@ -132,14 +142,35 @@ pub trait IUnknownImpl {
     ///
     /// This function takes `*mut Self` because the object may be freed by the time this method returns.
     /// Taking `&self` would violate Rust's rules on reference lifetime.
-    unsafe fn Release(self_: *mut Self) -> u32;
+    #[inline(always)]
+    unsafe fn release_ref(self_: *mut Self) -> u32 {
+        unsafe {
+            let remaining = (*self_).count_field().release();
+            if remaining > 0 {
+                return remaining;
+            }
+
+            Self::destroy(self_);
+            0
+        }
+    }
+
+    /// Destroys a COM object, after all references to it have been released.
+    ///
+    /// This uses the equivalent of a virtual destructor in order to run the correct
+    /// drop handlers and free the allocation with the correct size/alignment.
+    #[inline(never)]
+    fn destroy(self_: *mut Self) {
+        unsafe {
+            let destructor = (*self_).header().destructor;
+            destructor(self_ as *mut c_void);
+        }
+    }
 
     /// Returns `true` if the reference count of the box is equal to 1.
     #[inline(always)]
     fn is_reference_count_one(&self) -> bool {
-        unsafe {
-            self.count_field().is_one()
-        }
+        self.count_field().is_one()
     }
 
     /// Gets the trust level of the current object.
@@ -190,30 +221,43 @@ impl IUnknown_Vtbl {
             interface: *mut *mut c_void,
         ) -> HRESULT {
             unsafe {
-                let this = (this as *mut *mut c_void).offset(OFFSET) as *mut T;
-                (*this).query_interface(iid, interface)
+                let impl_ptr = this.offset(OFFSET) as *mut T;
+                (*impl_ptr).query_interface(iid, interface)
             }
         }
+
         unsafe extern "system" fn AddRef<T: IUnknownImpl, const OFFSET: isize>(
             this: *mut c_void,
         ) -> u32 {
             unsafe {
-                let this = (this as *mut *mut c_void).offset(OFFSET) as *mut T;
-                (*this).AddRef()
+                let impl_ptr = this.offset(OFFSET) as *mut T;
+                (*impl_ptr).add_ref()
             }
         }
+
         unsafe extern "system" fn Release<T: IUnknownImpl, const OFFSET: isize>(
             this: *mut c_void,
         ) -> u32 {
             unsafe {
-                let this = (this as *mut *mut c_void).offset(OFFSET) as *mut T;
-                T::Release(this)
+                let impl_ptr = this.offset(OFFSET) as *mut T;
+                T::release_ref(impl_ptr)
             }
         }
+
         Self {
             QueryInterface: QueryInterface::<T, OFFSET>,
             AddRef: AddRef::<T, OFFSET>,
             Release: Release::<T, OFFSET>,
         }
     }
+}
+
+/// Header of all COM objects
+pub struct ComObjectHeader {
+    /// reference count
+    pub count: WeakRefCount,
+    /// virtual destructor
+    pub destructor: unsafe fn(*mut c_void),
+    /// query interface implementation
+    pub query_interface: unsafe fn(*const c_void, *const GUID, *mut *mut c_void) -> HRESULT,
 }

@@ -196,6 +196,7 @@ fn implement_core(
                 // is guaranteed to live at least as long as `self`.
                 #[inline(always)]
                 unsafe fn as_impl_ptr(&self) -> ::core::ptr::NonNull<#original_ident::#generics> {
+                    // TODO: This is super sus
                     let this = ::windows_core::Interface::as_raw(self);
                     // Subtract away the vtable offset plus 1, for the `identity` field, to get
                     // to the impl struct which contains that original implementation type.
@@ -317,6 +318,7 @@ fn implement_core(
             // is guaranteed to live at least as long as `self`.
             #[inline(always)]
             unsafe fn as_impl_ptr(&self) -> ::core::ptr::NonNull<#original_ident::#generics> {
+                // TODO: This is super sus
                 unsafe {
                     let this = ::windows_core::Interface::as_raw(self);
                     // Subtract away the vtable offset plus 1, for the `identity` field, to get

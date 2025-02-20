@@ -277,7 +277,7 @@ impl<T: ComObjectInner + Default + IntoComObject> Default for ComObject<T> {
 impl<T: ComObjectInner> Drop for ComObject<T> {
     fn drop(&mut self) {
         unsafe {
-            T::Outer::Release(self.ptr.as_ptr());
+            T::Outer::release_ref(self.ptr.as_ptr());
         }
     }
 }
@@ -286,7 +286,7 @@ impl<T: ComObjectInner> Clone for ComObject<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
         unsafe {
-            self.ptr.as_ref().AddRef();
+            self.ptr.as_ref().add_ref();
             Self { ptr: self.ptr }
         }
     }
