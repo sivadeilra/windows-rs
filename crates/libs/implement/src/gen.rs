@@ -1,5 +1,90 @@
 use super::*;
 
+pub(crate) fn gen_all(inputs: &ImplementInputs) -> proc_macro2::TokenStream {
+    let generics = &inputs.generics;
+    let impl_ident = &inputs.impl_ident;
+    let constraints = &inputs.constraints;
+    let original_ident = &inputs.original_type.ident;
+
+    // Contains tokens that will be added to the impl block for the generated Foo_Impl type.
+    let mut impl_items = quote!();
+
+    if let Some(ref base_class_info) = inputs.base_class_info {
+        // Emit a method which allows the app to go from &Derived_Impl to &Base_Impl.
+        let base_field_ident = &base_class_info.field_ident;
+        let base_ty = &base_class_info.field_ty;
+        impl_items.extend(quote! {
+            /// Provides access to the base object.
+            // TODO: Handle generics for the base type.
+            pub fn base(&self) -> &#base_ty {
+                &self.#base_field_ident
+            }
+            // Do NOT provide a method for returning &mut #base_ty. Doing so would allow for
+            // breaking memory safety, because it would allow any caller to swap instances of
+            // the Foo_Impl. This may be fixable by moving the reference count field out of the
+            // _Impl types.
+            //
+            // It might be safe to return Pin<&mut Foo_Impl>.
+            // It would be safe to directly return &mut Foo (not &mut Foo_Impl!)
+        });
+    }
+
+    let mut original_impl_items = quote!();
+    original_impl_items.extend(gen::gen_into_outer(&inputs).into_token_stream());
+
+    if inputs.base_class_info.is_none() {
+        original_impl_items.extend(quote! {
+            /// This converts a partially-constructed COM object (in the sense that it contains
+            /// application state but does not yet have vtable and reference count constructed)
+            /// into a `StaticComObject`. This allows the COM object to be stored in static
+            /// (global) variables.
+            pub const fn into_static(self) -> ::windows_core::StaticComObject<Self> {
+                ::windows_core::StaticComObject::from_outer(self.into_outer())
+            }
+        });
+    }
+
+    let mut tokens = quote! {
+        impl #generics #impl_ident::#generics where #constraints {
+            #impl_items
+        }
+
+        impl #generics #original_ident::#generics where #constraints {
+            #original_impl_items
+        }
+
+        impl #generics ::core::ops::Deref for #impl_ident::#generics where #constraints {
+            type Target = #original_ident::#generics;
+
+            #[inline(always)]
+            fn deref(&self) -> &Self::Target {
+                &self.this
+            }
+        }
+
+        // We intentionally do not provide a DerefMut impl, due to paranoia around soundness.
+    };
+
+    for item in gen::gen_impl_com_object_interfaces(&inputs) {
+        tokens.extend(item.into_token_stream());
+    }
+
+    tokens.extend(gen::gen_impl_struct(&inputs).into_token_stream());
+    tokens.extend(gen::gen_iunknown_impl(&inputs).into_token_stream());
+    tokens.extend(gen::gen_impl_com_object_inner(&inputs).into_token_stream());
+    tokens.extend(gen::gen_impl_into_com_object(&inputs).into_token_stream());
+
+    for item in gen::gen_conversions(&inputs) {
+        tokens.extend(item.into_token_stream());
+    }
+
+    for interface_chain in inputs.interface_chains.iter() {
+        tokens.extend(gen::gen_impl_as_impl(&inputs, interface_chain).into_token_stream());
+    }
+
+    tokens
+}
+
 // Generates the structure definition for the `Foo_Impl` type.
 pub(crate) fn gen_impl_struct(inputs: &ImplementInputs) -> syn::ItemStruct {
     let vis = &inputs.original_type.vis;
@@ -431,6 +516,134 @@ pub(crate) fn gen_into_outer(inputs: &ImplementInputs) -> syn::TraitItemFn {
                     #vtbl_initializers
                     this: self,
                 }
+            }
+        }
+    }
+}
+
+/// Generates `From`-based conversions
+pub(crate) fn gen_conversions(inputs: &ImplementInputs) -> Vec<syn::Item> {
+    let mut items = Vec::new();
+
+    let original_ident = &inputs.original_type.ident;
+    let generics = &inputs.generics;
+    let constraints = &inputs.constraints;
+
+    // These conversions only work for non-aggregated types.
+    if inputs.base_class_info.is_none() {
+        items.push(parse_quote! {
+            impl #generics ::core::convert::From<#original_ident::#generics> for ::windows_core::IUnknown where #constraints {
+                #[inline(always)]
+                fn from(this: #original_ident::#generics) -> Self {
+                    let com_object = ::windows_core::ComObject::new(this);
+                    com_object.into_interface()
+                }
+            }
+        });
+
+        items.push(parse_quote! {
+            impl #generics ::core::convert::From<#original_ident::#generics> for ::windows_core::IInspectable where #constraints {
+                #[inline(always)]
+                fn from(this: #original_ident::#generics) -> Self {
+                    let com_object = ::windows_core::ComObject::new(this);
+                    com_object.into_interface()
+                }
+            }
+        });
+
+        for interface_chain in inputs.interface_chains.iter() {
+            let interface_ident = interface_chain.implement.to_ident();
+
+            items.push(parse_quote! {
+                impl #generics ::core::convert::From<#original_ident::#generics> for #interface_ident where #constraints {
+                    #[inline(always)]
+                    fn from(this: #original_ident::#generics) -> Self {
+                        let com_object = ::windows_core::ComObject::new(this);
+                        com_object.into_interface()
+                    }
+                }
+            });
+        }
+    }
+
+    items
+}
+
+/// Generates the `ComObjectInterface` implementation for each interface chain
+pub(crate) fn gen_impl_com_object_interfaces(inputs: &ImplementInputs) -> Vec<syn::Item> {
+    let mut items = Vec::new();
+
+    let generics = &inputs.generics;
+    let constraints = &inputs.constraints;
+    let impl_ident = &inputs.impl_ident;
+
+    items.push(parse_quote! {
+        impl #generics ::windows_core::ComObjectInterface<::windows_core::IUnknown> for #impl_ident::#generics where #constraints {
+            #[inline(always)]
+            fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IUnknown> {
+                unsafe {
+                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl = self.identity_interface();
+                    ::core::mem::transmute(interface_ptr)
+                }
+            }
+        }
+    });
+
+    items.push(parse_quote! {
+        impl #generics ::windows_core::ComObjectInterface<::windows_core::IInspectable> for #impl_ident::#generics where #constraints {
+            #[inline(always)]
+            fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, ::windows_core::IInspectable> {
+                unsafe {
+                    let interface_ptr: &&'static ::windows_core::IInspectable_Vtbl = self.identity_interface();
+                    ::core::mem::transmute(interface_ptr)
+                }
+            }
+        }
+    });
+
+    for interface_chain in inputs.interface_chains.iter() {
+        let chain_field = &interface_chain.field_ident;
+        let interface_ident = interface_chain.implement.to_ident();
+
+        items.push(parse_quote! {
+            impl #generics ::windows_core::ComObjectInterface<#interface_ident> for #impl_ident::#generics where #constraints {
+                #[inline(always)]
+                fn as_interface_ref(&self) -> ::windows_core::InterfaceRef<'_, #interface_ident> {
+                    unsafe {
+                        ::core::mem::transmute(&self.#chain_field)
+                    }
+                }
+            }
+        });
+    }
+
+    items
+}
+
+pub(crate) fn gen_impl_as_impl(
+    inputs: &ImplementInputs,
+    interface_chain: &InterfaceChain,
+) -> syn::Item {
+    let generics = &inputs.generics;
+    let constraints = &inputs.constraints;
+    let interface_ident = interface_chain.implement.to_ident();
+    let original_ident = &inputs.original_type.ident;
+
+    parse_quote! {
+        impl #generics ::windows_core::AsImpl<#original_ident::#generics> for #interface_ident where #constraints {
+            // SAFETY: the offset is guranteed to be in bounds, and the implementation struct
+            // is guaranteed to live at least as long as `self`.
+            #[inline(always)]
+            unsafe fn as_impl_ptr(&self) -> ::core::ptr::NonNull<#original_ident::#generics> {
+                // TODO: This is super sus
+                todo!()
+                /*
+                let this = ::windows_core::Interface::as_raw(self);
+                // Subtract away the vtable offset plus 1, for the `identity` field, to get
+                // to the impl struct which contains that original implementation type.
+                let this = (this as *mut *mut ::core::ffi::c_void).sub(1 + #offset) as *mut #impl_ident::#generics;
+                ::core::ptr::NonNull::new_unchecked(::core::ptr::addr_of!((*this).this) as *const #original_ident::#generics as *mut #original_ident::#generics)
+                */
             }
         }
     }
