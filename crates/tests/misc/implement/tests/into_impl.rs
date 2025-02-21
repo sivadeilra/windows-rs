@@ -66,7 +66,8 @@ where
     <T as Type<T>>::Default: PartialEq,
 {
     fn First(&self) -> Result<IIterator<T>> {
-        Ok(Iterator::<T>((unsafe { self.cast()? }, 0).into()).into())
+        let iterable = self.to_interface::<IIterable<T>>();
+        Ok(Iterator::<T>((iterable, 0).into()).into())
     }
 }
 

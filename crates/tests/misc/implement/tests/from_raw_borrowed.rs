@@ -23,10 +23,8 @@ impl IServiceProvider_Impl for Borrowed_Impl {
         iid: *const GUID,
         object: *mut *mut std::ffi::c_void,
     ) -> Result<()> {
-        unsafe {
-            let unknown: IUnknown = self.cast()?;
-            unknown.query(iid, object).ok()
-        }
+        let unknown: IUnknown = self.to_interface();
+        unsafe { unknown.query(iid, object).ok() }
     }
 }
 

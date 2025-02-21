@@ -4,10 +4,6 @@ use std::process::{Command, Stdio};
 use proc_macro2::TokenStream;
 use quote::quote;
 
-// fn implement_to_tokens(attributes: TokenStream, item_tokens: TokenStream) -> TokenStream {
-//     crate::implement_core(attributes, item_tokens)
-// }
-
 fn implement(attributes: TokenStream, item_tokens: TokenStream) -> String {
     let out_tokens = crate::implement_core(attributes, item_tokens);
     let tokens_string = out_tokens.to_string();
@@ -61,43 +57,54 @@ fn rustfmt(input: &str) -> String {
 
 #[test]
 fn base() {
-    let _out = implement(quote!(IBase, IOtherBase), quote! {
-        struct Base {
-            zzz: u32,
-        }
-    });
+    let _out = implement(
+        quote!(IBase, IOtherBase),
+        quote! {
+            struct Base {
+                zzz: u32,
+            }
+        },
+    );
 }
-
 
 #[test]
 fn derived() {
-    let _out = implement(quote!(IFoo, IBar, IZap), quote! {
-        struct Derived {
-            #[base]
-            base: Base_Impl,
+    let _out = implement(
+        quote!(IFoo, IBar, IZap),
+        quote! {
+            struct Derived {
+                #[base]
+                base: Base_Impl,
 
-            x: u32,
-        }
-    });
+                x: u32,
+            }
+        },
+    );
 }
 
 #[test]
 fn generic_no_lifetime() {
-    let _out = implement(quote!(IAsyncOperationWithProgress<T, P>, IAsyncInfo), quote! {
-        struct OperationWithProgress<T, P>(SyncState<IAsyncOperationWithProgress<T, P>>)
-        where
-            T: RuntimeType + 'static,
-            P: RuntimeType + 'static;
+    let _out = implement(
+        quote!(IAsyncOperationWithProgress<T, P>, IAsyncInfo),
+        quote! {
+            struct OperationWithProgress<T, P>(SyncState<IAsyncOperationWithProgress<T, P>>)
+            where
+                T: RuntimeType + 'static,
+                P: RuntimeType + 'static;
 
-    });
+        },
+    );
 }
 
 #[test]
 fn generic_with_lifetime() {
-    let _out = implement(quote!(), quote! {
-        struct Foo<'a> {
-            x: &'a [u8],
-        }
+    let _out = implement(
+        quote!(),
+        quote! {
+            pub struct Foo<'a> {
+                pub x: &'a [u8],
+            }
 
-    });
+        },
+    );
 }

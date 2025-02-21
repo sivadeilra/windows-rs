@@ -121,11 +121,31 @@ impl<T: ComObjectInner> ComObject<T> {
     }
 
     /// Allocates a heap cell (box) and moves `value` into it. Returns a counted pointer to `value`.
-    pub fn new_aggregated(value: T, base: T::Base) -> Self
+    pub fn new_aggregated(value: T, base: ComObject<<T::Base as IUnknownImpl>::Impl>) -> Self
     where
         T: IntoAggregatedComObject,
+        <T::Base as IUnknownImpl>::Impl: ComObjectInner<Outer = T::Base>,
     {
-        T::into_object(value, base)
+        let base_box: Box<_> = unsafe {
+            base.try_into_box()
+                .unwrap_or_else(|_| panic!("Base class should have a refcount of 1, but does not"))
+        };
+        let base_unwrapped = *base_box;
+        T::into_object(value, base_unwrapped)
+    }
+
+    unsafe fn try_into_box(self) -> Result<Box<T::Outer>, Self> {
+        if self.is_reference_count_one() {
+            let ptr = self.ptr;
+
+            unsafe {
+                let this_box = Box::from_raw(ptr.as_ptr());
+                core::mem::forget(self);
+                Ok(this_box)
+            }
+        } else {
+            Err(self)
+        }
     }
 
     /// Creates a new `ComObject` that points to an existing boxed instance.
